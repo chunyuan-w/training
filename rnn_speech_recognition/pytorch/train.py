@@ -19,13 +19,11 @@ import os
 import time
 import toml
 import torch
-import apex
-from apex import amp
 import random
 import numpy as np
 import math
 from dataset import AudioToTextDataLayer
-from helpers import monitor_asr_train_progress, process_evaluation_batch, process_evaluation_epoch, Optimization, add_blank_label, AmpOptimizations, model_multi_gpu, print_dict, print_once
+from helpers import monitor_asr_train_progress, process_evaluation_batch, process_evaluation_epoch, Optimization, add_blank_label, AmpOptimizations, print_dict, print_once
 from model_rnnt import RNNT
 from decoders import RNNTGreedyDecoder
 from loss import RNNTLoss
@@ -196,9 +194,8 @@ def train(
             if args.gradient_accumulation_steps > 1:
                 t_loss_t = t_loss_t / args.gradient_accumulation_steps
 
-            if optim_level in AmpOptimizations:
-                with amp.scale_loss(t_loss_t, optimizer) as scaled_loss:
-                    scaled_loss.backward()
+            if args.cuda and optim_level in AmpOptimizations:
+                assert False, "not supported in ipex"
             else:
                 t_loss_t.backward()
             batch_counter += 1
@@ -221,8 +218,8 @@ def train(
                 average_loss = 0
                 if args.num_steps is not None and step >= args.num_steps:
                     break
-
-        evalutaion(epoch)
+        # TODO commented out temporarily
+        # evalutaion(epoch)
 
         if args.num_steps is not None and step >= args.num_steps:
             break
@@ -234,15 +231,14 @@ def train(
             break
     print_once("Done in {0}".format(time.time() - start_time))
     print_once("Final Evaluation ....................... ......  ... .. . .")
-    evalutaion()
+    # TODO commented out temporarily
+    # evalutaion()
     save(model, optimizer, epoch, output_dir=args.output_dir)
 
 def main(args):
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
-    assert(torch.cuda.is_available())
-    torch.backends.cudnn.benchmark = args.cudnn
 
     args.local_rank = os.environ.get('LOCAL_RANK', args.local_rank)
     # set up distributed training
@@ -291,20 +287,26 @@ def main(args):
 
 
     preprocessor = preprocessing.AudioPreprocessing(**featurizer_config)
-    preprocessor.cuda()
-
+    if args.cuda:
+        preprocessor.cuda()
+    else:
+        preprocessor.cpu()
+    
     augmentations = preprocessing.SpectrogramAugmentation(**featurizer_config)
-    augmentations.cuda()
+    if args.cuda:
+        augmentations.cuda()
+    else:
+        augmentations.cpu()
 
     train_transforms = torchvision.transforms.Compose([
-        lambda xs: [x.cuda() for x in xs],
+        lambda xs: [x.to("dpcpp") if args.ipex else x.cpu() for x in xs ],
         lambda xs: [*preprocessor(xs[0:2]), *xs[2:]],
         lambda xs: [augmentations(xs[0]),   *xs[1:]],
         lambda xs: [xs[0].permute(2, 0, 1), *xs[1:]],
     ])
 
     eval_transforms = torchvision.transforms.Compose([
-        lambda xs: [x.cuda() for x in xs],
+        lambda xs: [x.to("dpcpp") if args.ipex else x.cpu() for x in xs ],
         lambda xs: [*preprocessor(xs[0:2]), *xs[2:]],
         lambda xs: [xs[0].permute(2, 0, 1), *xs[1:]],
     ])
@@ -386,7 +388,13 @@ def main(args):
         fn_lr_policy = lambda s: lr_warmup(args.lr_warmup, s, pre_warmup_policy(s) )
 
 
-    model.cuda()
+    if args.ipex:
+        import intel_pytorch_extension as ipex
+        model = model.to("dpcpp")
+        ipex.core.enable_auto_dnnl()
+    else:
+        model.cpu()
+
 
 
     if args.optimizer_kind == "novograd":
@@ -400,18 +408,12 @@ def main(args):
     else:
         raise ValueError("invalid optimizer choice: {}".format(args.optimizer_kind))
 
-    if optim_level in AmpOptimizations:
-        model, optimizer = amp.initialize(
-            min_loss_scale=0.125,
-            models=model,
-            optimizers=optimizer,
-            opt_level=AmpOptimizations[optim_level]
-        )
+    if args.cuda and optim_level in AmpOptimizations:
+        assert False, "not supported in ipex"
 
     if args.ckpt is not None:
         optimizer.load_state_dict(checkpoint['optimizer'])
 
-    model = model_multi_gpu(model, multi_gpu)
     print_once(model)
     print_once("# parameters: {}".format(sum(p.numel() for p in model.parameters())))
     greedy_decoder = RNNTGreedyDecoder(len(ctc_vocab) - 1, model.module if multi_gpu else model)
@@ -467,6 +469,8 @@ def parse_args():
     parser.add_argument("--seed", default=42, type=int, help='seed')
     parser.add_argument("--tb_path", default=None, type=str, help='where to store tensorboard data')
     parser.add_argument("--histogram", default=False, action='store_true', help='whether to log param and grad histograms')
+    parser.add_argument("--cuda", action='store_true', help='use cuda')
+    parser.add_argument("--ipex", action='store_true', help='use ipex')
     args=parser.parse_args()
     return args
 

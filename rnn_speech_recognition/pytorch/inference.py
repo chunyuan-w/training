@@ -19,20 +19,20 @@ from tqdm import tqdm
 import math
 import toml
 from dataset import AudioToTextDataLayer
-from helpers import process_evaluation_batch, process_evaluation_epoch, Optimization, add_blank_label, AmpOptimizations, print_dict, model_multi_gpu
+from helpers import process_evaluation_batch, process_evaluation_epoch, Optimization, add_blank_label, AmpOptimizations, print_dict
 from decoders import RNNTGreedyDecoder
 from model_rnnt import RNNT
 from preprocessing import AudioPreprocessing
 from parts.features import audio_from_file
 import torch
-import apex
-from apex import amp
 import random
 import numpy as np
 import pickle
 import time
 
 import torchvision
+
+import intel_pytorch_extension as ipex
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Jasper')
@@ -51,6 +51,14 @@ def parse_args():
     parser.add_argument("--logits_save_to", default=None, type=str, help="if specified will save logits to path")
     parser.add_argument("--seed", default=42, type=int, help='seed')
     parser.add_argument("--wav", type=str, help='absolute path to .wav file (16KHz)')
+    parser.add_argument("--print-result", action='store_true', help='print prediction results', default=False)
+    parser.add_argument("--ipex", action='store_true', help='use ipex', default=False)
+    parser.add_argument("--int8", action='store_true', help='use int8', default=False)
+    parser.add_argument("--mix-precision", action='store_true', help='use bf16', default=False)
+    parser.add_argument('--calibration', action='store_true', default=False,
+                    help='doing int8 calibration step')
+    parser.add_argument('--configure-dir', default='configure.json', type=str, metavar='PATH',
+                    help = 'path to int8 configures, default file name is configure.json')
     return parser.parse_args()
 
 def eval(
@@ -81,13 +89,14 @@ def eval(
         }
 
 
-        
         if args.wav:
+            # TODO unimplemented in ipex
+            assert False, "wav unsupported in ipex for now"
             features, p_length_e = audio_processor(audio_from_file(args.wav))
-            torch.cuda.synchronize()
+            # torch.cuda.synchronize()
             t0 = time.perf_counter()
             t_log_probs_e = encoderdecoder(features)
-            torch.cuda.synchronize()
+            # torch.cuda.synchronize()
             t1 = time.perf_counter()
             t_predictions_e = greedy_decoder(log_probs=t_log_probs_e)
             hypotheses = __ctc_decoder_predictions_tensor(t_predictions_e, labels=labels)
@@ -95,49 +104,84 @@ def eval(
             print("TRANSCRIPT\t\t:", hypotheses[0])
             return
         
-        for it, data in enumerate(tqdm(data_layer.data_iterator)):
-            t_audio_signal_e, t_a_sig_length_e, t_transcript_e, t_transcript_len_e = audio_processor(data)
+        # Int8 Calibration
+        if args.ipex and args.int8 and args.calibration:
+            print("runing int8 calibration step\n")
+            conf = ipex.AmpConf(torch.int8)            
+            for it, data in enumerate(tqdm(data_layer.data_iterator)):
+                t_audio_signal_e, t_a_sig_length_e, t_transcript_e, t_transcript_len_e = audio_processor(data)
+                with ipex.AutoMixedPrecision(conf, running_mode="calibration"):
+                    t_log_probs_e, (x_len, y_len) = encoderdecoder(
+                            ((t_audio_signal_e, t_transcript_e), (t_a_sig_length_e, t_transcript_len_e)),
+                    )
+                    t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e)
 
-            t_log_probs_e, (x_len, y_len) = encoderdecoder(
-                    ((t_audio_signal_e, t_transcript_e), (t_a_sig_length_e, t_transcript_len_e)),
-            )
-            t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e)
+                if args.steps is not None and it + 1 >= args.steps:
+                    break
+            conf.save(args.configure_dir)
+        # Inference (vanilla cpu, dnnl fp32 or dnnl int8)
+        else:
+            for it, data in enumerate(tqdm(data_layer.data_iterator)):
+                t_audio_signal_e, t_a_sig_length_e, t_transcript_e, t_transcript_len_e = audio_processor(data)
+                if args.ipex and args.int8:
+                    conf = ipex.AmpConf(torch.int8, args.configure_dir)
 
-            values_dict = dict(
-                predictions=[t_predictions_e],
-                transcript=[t_transcript_e],
-                transcript_length=[t_transcript_len_e],
-                output=[t_log_probs_e]
-            )
-            process_evaluation_batch(values_dict, _global_var_dict, labels=labels)
+                    with ipex.AutoMixedPrecision(conf, running_mode="inference"):
+                        t_log_probs_e, (x_len, y_len) = encoderdecoder(
+                                ((t_audio_signal_e, t_transcript_e), (t_a_sig_length_e, t_transcript_len_e)),
+                        )
+                        t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e)
 
-            if args.steps is not None and it + 1 >= args.steps:
-                break
-        wer, _ = process_evaluation_epoch(_global_var_dict)
-        if (not multi_gpu or (multi_gpu and torch.distributed.get_rank() == 0)):
-            print("==========>>>>>>Evaluation WER: {0}\n".format(wer))
-            if args.save_prediction is not None:
-                with open(args.save_prediction, 'w') as fp:
-                    fp.write('\n'.join(_global_var_dict['predictions']))
-            if logits_save_to is not None:
-                logits = []
-                for batch in _global_var_dict["logits"]:
-                    for i in range(batch.shape[0]):
-                        logits.append(batch[i].cpu().numpy())
-                with open(logits_save_to, 'wb') as f:
-                    pickle.dump(logits, f, protocol=pickle.HIGHEST_PROTOCOL)
+                else:
+                    t_log_probs_e, (x_len, y_len) = encoderdecoder(
+                            ((t_audio_signal_e, t_transcript_e), (t_a_sig_length_e, t_transcript_len_e)),
+                    )
+                    t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e)  
+                
+                values_dict = dict(
+                    predictions=[t_predictions_e],
+                    transcript=[t_transcript_e],
+                    transcript_length=[t_transcript_len_e],
+                    output=[t_log_probs_e]
+                )
+                process_evaluation_batch(values_dict, _global_var_dict, labels=labels)
+
+                if args.steps is not None and it + 1 >= args.steps:
+                    break
+
+            if args.print_result:
+                hypotheses = _global_var_dict['predictions']
+                references = _global_var_dict['transcripts']
+
+                nb = 10
+                print("print %d sample results: " % (min(len(hypotheses), nb)))
+                for i, item in enumerate(hypotheses):
+                    print("hyp: ", hypotheses[i])
+                    print("ref: ", references[i])
+                    print()
+                    if i > nb:
+                        break
+
+            wer, _ = process_evaluation_epoch(_global_var_dict)
+            if (not multi_gpu or (multi_gpu and torch.distributed.get_rank() == 0)):
+                print("==========>>>>>>Evaluation WER: {0}\n".format(wer))
+                if args.save_prediction is not None:
+                    with open(args.save_prediction, 'w') as fp:
+                        fp.write('\n'.join(_global_var_dict['predictions']))
+                if logits_save_to is not None:
+                    logits = []
+                    for batch in _global_var_dict["logits"]:
+                        for i in range(batch.shape[0]):
+                            logits.append(batch[i].cpu().numpy())
+                    with open(logits_save_to, 'wb') as f:
+                        pickle.dump(logits, f, protocol=pickle.HIGHEST_PROTOCOL)
 
 def main(args):
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     torch.backends.cudnn.benchmark = args.cudnn_benchmark
-    print("CUDNN BENCHMARK ", args.cudnn_benchmark)
-    assert(torch.cuda.is_available())
 
-    if args.local_rank is not None:
-        torch.cuda.set_device(args.local_rank)
-        torch.distributed.init_process_group(backend='nccl', init_method='env://')
     multi_gpu = args.local_rank is not None
     if multi_gpu:
         print("DISTRIBUTED with ", torch.distributed.get_world_size())
@@ -190,6 +234,14 @@ def main(args):
         checkpoint = torch.load(args.ckpt, map_location="cpu")
         model.load_state_dict(checkpoint['state_dict'], strict=False)
 
+    if args.ipex:
+        model = model.to("dpcpp")
+        ipex.core.enable_auto_dnnl()
+        if args.mix_precision:
+            ipex.enable_auto_optimization(mixed_dtype=torch.bfloat16)
+    else:
+        model = model.to("cpu")
+
     #greedy_decoder = GreedyCTCDecoder()
 
     # print("Number of parameters in encoder: {0}".format(model.jasper_encoder.num_weights()))
@@ -211,22 +263,15 @@ def main(args):
             audio_preprocessor.featurizer.normalize = "per_feature"
 
     print ("audio_preprocessor.normalize: ", audio_preprocessor.featurizer.normalize)
-    audio_preprocessor.cuda()
     audio_preprocessor.eval()
 
     eval_transforms = torchvision.transforms.Compose([
-        lambda xs: [x.cuda() for x in xs],
+        lambda xs: [x.to("dpcpp") if args.ipex else x.cpu() for x in xs],
         lambda xs: [*audio_preprocessor(xs[0:2]), *xs[2:]],
         lambda xs: [xs[0].permute(2, 0, 1), *xs[1:]],
     ])
 
-    model.cuda()
-    if args.fp16:
-        model = amp.initialize(
-            models=model,
-            opt_level=AmpOptimizations[optim_level])
 
-    model = model_multi_gpu(model, multi_gpu)
 
     greedy_decoder = RNNTGreedyDecoder(len(ctc_vocab) - 1, model.module if multi_gpu else model)
 

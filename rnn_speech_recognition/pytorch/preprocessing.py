@@ -16,7 +16,6 @@ import random
 
 import torch
 import torch.nn as nn
-from apex import amp
 
 from helpers import Optimization
 from parts.features import FeatureFactory
@@ -112,9 +111,7 @@ class AudioPreprocessing(nn.Module):
         input_signal, length = x
         length.requires_grad_(False)
         if self.optim_level not in  [Optimization.nothing, Optimization.mxprO0, Optimization.mxprO3]:
-            with amp.disable_casts():
-                processed_signal = self.featurizer(x)
-                processed_length = self.featurizer.get_seq_len(length)
+            assert False, "unsupported optim level when using ipex"
         else:
                 processed_signal = self.featurizer(x)
                 processed_length = self.featurizer.get_seq_len(length)
