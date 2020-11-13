@@ -110,7 +110,7 @@ def eval(
             conf = ipex.AmpConf(torch.int8)            
             for it, data in enumerate(tqdm(data_layer.data_iterator)):
                 t_audio_signal_e, t_a_sig_length_e, t_transcript_e, t_transcript_len_e = audio_processor(data)
-                with ipex.AutoMixedPrecision(conf, running_mode="calibration"):
+                with ipex.AutoMixPrecision(conf, running_mode="calibration"):
                     t_log_probs_e, (x_len, y_len) = encoderdecoder(
                             ((t_audio_signal_e, t_transcript_e), (t_a_sig_length_e, t_transcript_len_e)),
                     )
@@ -126,7 +126,7 @@ def eval(
                 if args.ipex and args.int8:
                     conf = ipex.AmpConf(torch.int8, args.configure_dir)
 
-                    with ipex.AutoMixedPrecision(conf, running_mode="inference"):
+                    with ipex.AutoMixPrecision(conf, running_mode="inference"):
                         t_log_probs_e, (x_len, y_len) = encoderdecoder(
                                 ((t_audio_signal_e, t_transcript_e), (t_a_sig_length_e, t_transcript_len_e)),
                         )
