@@ -238,7 +238,7 @@ def main(args):
         model = model.to("dpcpp")
         ipex.core.enable_auto_dnnl()
         if args.mix_precision:
-            ipex.enable_auto_optimization(mixed_dtype=torch.bfloat16)
+            ipex.enable_auto_mixed_precision(mixed_dtype=torch.bfloat16)
     else:
         model = model.to("cpu")
 
