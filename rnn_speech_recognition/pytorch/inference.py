@@ -51,6 +51,7 @@ def parse_args():
     parser.add_argument("--logits_save_to", default=None, type=str, help="if specified will save logits to path")
     parser.add_argument("--seed", default=42, type=int, help='seed')
     parser.add_argument("--wav", type=str, help='absolute path to .wav file (16KHz)')
+    parser.add_argument("--warm_up", help='warm up steps, will only measure the performance from step=warm_up to step=(steps-warm_up)', type=int, default=0)
     parser.add_argument("--print-result", action='store_true', help='print prediction results', default=False)
     parser.add_argument("--ipex", action='store_true', help='use ipex', default=False)
     parser.add_argument("--int8", action='store_true', help='use int8', default=False)
@@ -121,22 +122,35 @@ def eval(
             conf.save(args.configure_dir)
         # Inference (vanilla cpu, dnnl fp32 or dnnl int8)
         else:
+            total_time = 0
+            if args.steps:
+                assert args.steps > args.warm_up, "warm up steps should <= total steps"
+            else:
+                assert len(data_layer.data_iterator) > args.warm_up, "warm up steps should <= length of the dataset"
+            
             for it, data in enumerate(tqdm(data_layer.data_iterator)):
                 t_audio_signal_e, t_a_sig_length_e, t_transcript_e, t_transcript_len_e = audio_processor(data)
                 if args.ipex and args.int8:
                     conf = ipex.AmpConf(torch.int8, args.configure_dir)
 
                     with ipex.AutoMixPrecision(conf, running_mode="inference"):
+                        t0 = time.perf_counter()
                         t_log_probs_e, (x_len, y_len) = encoderdecoder(
                                 ((t_audio_signal_e, t_transcript_e), (t_a_sig_length_e, t_transcript_len_e)),
                         )
                         t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e)
+                        t1 = time.perf_counter()
 
                 else:
+                    t0 = time.perf_counter()
                     t_log_probs_e, (x_len, y_len) = encoderdecoder(
                             ((t_audio_signal_e, t_transcript_e), (t_a_sig_length_e, t_transcript_len_e)),
                     )
-                    t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e)  
+                    t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e)
+                    t1 = time.perf_counter()
+                
+                if it >= args.warm_up:
+                    total_time += (t1 - t0)
                 
                 values_dict = dict(
                     predictions=[t_predictions_e],
@@ -164,7 +178,7 @@ def eval(
 
             wer, _ = process_evaluation_epoch(_global_var_dict)
             if (not multi_gpu or (multi_gpu and torch.distributed.get_rank() == 0)):
-                print("==========>>>>>>Evaluation WER: {0}\n".format(wer))
+                print("\n==========>>>>>>Evaluation WER: {0}".format(wer))
                 if args.save_prediction is not None:
                     with open(args.save_prediction, 'w') as fp:
                         fp.write('\n'.join(_global_var_dict['predictions']))
@@ -175,6 +189,13 @@ def eval(
                             logits.append(batch[i].cpu().numpy())
                     with open(logits_save_to, 'wb') as f:
                         pickle.dump(logits, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+            total_steps = args.steps if args.steps else len(data_layer.data_iterator)
+            total_measure_steps = total_steps - args.warm_up
+            latency = total_time / total_measure_steps
+            perf = total_measure_steps / total_time
+            print('==========>>>>>>Inference latency %.3f s' % latency)
+            print('==========>>>>>>Inference performance %.3f fps' % perf)
 
 def main(args):
     random.seed(args.seed)
