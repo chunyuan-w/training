@@ -256,7 +256,7 @@ def main(args):
         model.load_state_dict(checkpoint['state_dict'], strict=False)
 
     if args.ipex:
-        model = model.to("dpcpp")
+        model = model.to(ipex.DEVICE)
         ipex.core.enable_auto_dnnl()
         if args.mix_precision:
             ipex.enable_auto_mixed_precision(mixed_dtype=torch.bfloat16)
@@ -287,7 +287,7 @@ def main(args):
     audio_preprocessor.eval()
 
     eval_transforms = torchvision.transforms.Compose([
-        lambda xs: [x.to("dpcpp") if args.ipex else x.cpu() for x in xs],
+        lambda xs: [x.to(ipex.DEVICE) if args.ipex else x.cpu() for x in xs],
         lambda xs: [*audio_preprocessor(xs[0:2]), *xs[2:]],
         lambda xs: [xs[0].permute(2, 0, 1), *xs[1:]],
     ])

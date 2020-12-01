@@ -299,14 +299,14 @@ def main(args):
         augmentations.cpu()
 
     train_transforms = torchvision.transforms.Compose([
-        lambda xs: [x.to("dpcpp") if args.ipex else x.cpu() for x in xs ],
+        lambda xs: [x.to(ipex.DEVICE) if args.ipex else x.cpu() for x in xs ],
         lambda xs: [*preprocessor(xs[0:2]), *xs[2:]],
         lambda xs: [augmentations(xs[0]),   *xs[1:]],
         lambda xs: [xs[0].permute(2, 0, 1), *xs[1:]],
     ])
 
     eval_transforms = torchvision.transforms.Compose([
-        lambda xs: [x.to("dpcpp") if args.ipex else x.cpu() for x in xs ],
+        lambda xs: [x.to(ipex.DEVICE) if args.ipex else x.cpu() for x in xs ],
         lambda xs: [*preprocessor(xs[0:2]), *xs[2:]],
         lambda xs: [xs[0].permute(2, 0, 1), *xs[1:]],
     ])
@@ -390,7 +390,7 @@ def main(args):
 
     if args.ipex:
         import intel_pytorch_extension as ipex
-        model = model.to("dpcpp")
+        model = model.to(ipex.DEVICE)
         ipex.core.enable_auto_dnnl()
     else:
         model.cpu()
