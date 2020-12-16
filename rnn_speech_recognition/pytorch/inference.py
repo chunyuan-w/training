@@ -193,7 +193,7 @@ def eval(
             total_steps = args.steps if args.steps else len(data_layer.data_iterator)
             total_measure_steps = total_steps - args.warm_up
             latency = total_time / total_measure_steps
-            perf = total_measure_steps / total_time
+            perf = total_measure_steps / total_time * args.batch_size
             print('==========>>>>>>Inference latency %.3f s' % latency)
             print('==========>>>>>>Inference performance %.3f fps' % perf)
 
