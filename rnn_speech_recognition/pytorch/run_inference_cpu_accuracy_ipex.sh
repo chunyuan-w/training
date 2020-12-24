@@ -3,7 +3,7 @@
 export DNNL_PRIMITIVE_CACHE_CAPACITY=1024
 
 SEED=2020
-BATCH_SIZE=32
+BATCH_SIZE=1
 
 CONFIG_FILE=""
 
@@ -53,4 +53,4 @@ echo -e "### using OMP_NUM_THREADS=$TOTAL_CORES"
 echo -e "### using $KMP_SETTING\n\n"
 sleep 3
 
-python -u inference.py $ARGS $CONFIG_FILE --val_manifest $VAL_DATASET --model_toml configs/rnnt_ckpt.toml --batch_size $BATCH_SIZE --seed $SEED
+python -u inference.py $ARGS $CONFIG_FILE --val_manifest $VAL_DATASET --model_toml configs/rnnt_ckpt.toml --batch_size $BATCH_SIZE --seed $SEED --jit

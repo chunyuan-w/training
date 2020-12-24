@@ -35,11 +35,11 @@ class TransducerDecoder:
 
     def _pred_step(self, label, hidden, device):
         if label == self._SOS:
-            return self._model.predict(None, hidden, add_sos=False)
+            return self._model.predict(None, hidden, add_sos=False, device=device)
         if label > self._blank_id:
             label -= 1
         label = label_collate([[label]]).to(device)
-        return self._model.predict(label, hidden, add_sos=False)
+        return self._model.predict(label, hidden, add_sos=False, device=device)
 
     def _joint_step(self, enc, pred, log_normalize=False):
         logits = self._model.joint(enc, pred)[:, 0, 0, :]

@@ -55,6 +55,7 @@ def parse_args():
     parser.add_argument("--print-result", action='store_true', help='print prediction results', default=False)
     parser.add_argument("--ipex", action='store_true', help='use ipex', default=False)
     parser.add_argument("--int8", action='store_true', help='use int8', default=False)
+    parser.add_argument("--jit", action='store_true', help='use jit', default=False)
     parser.add_argument("--mix-precision", action='store_true', help='use bf16', default=False)
     parser.add_argument('--calibration', action='store_true', default=False,
                     help='doing int8 calibration step')
@@ -260,6 +261,9 @@ def main(args):
         ipex.core.enable_auto_dnnl()
         if args.mix_precision:
             ipex.enable_auto_mixed_precision(mixed_dtype=torch.bfloat16)
+        if args.jit:
+            print("running jit path")
+            model.joint_net = torch.jit.script(model.joint_net)
     else:
         model = model.to("cpu")
 

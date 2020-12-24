@@ -185,7 +185,7 @@ class RNNT(torch.nn.Module):
 
         return x.transpose(0, 1), x_lens
 
-    def predict(self, y, state=None, add_sos=True):
+    def predict(self, y, state=None, add_sos=True, device="cpu"):
         """
         B - batch size
         U - label length
@@ -209,8 +209,8 @@ class RNNT(torch.nn.Module):
         else:
             B = 1 if state is None else state[0].size(1)
             y = torch.zeros((B, 1, self.pred_n_hidden)).to(
-                device=self.joint_net[0].weight.device,
-                dtype=self.joint_net[0].weight.dtype
+                device=device,
+                dtype=torch.float32
             )
 
         # preprend blank "start of sequence" symbol
