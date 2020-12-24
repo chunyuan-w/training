@@ -32,6 +32,9 @@ if [ "$4" == "int8" ]; then
     else
         echo "### running int8 inference"
     fi
+elif [ "$4" == "bf16" ]; then
+    ARGS="$ARGS --mix-precision"
+    echo "### running bf16 inference"
 fi
 
 CORES=`lscpu | grep Core | awk '{print $4}'`
