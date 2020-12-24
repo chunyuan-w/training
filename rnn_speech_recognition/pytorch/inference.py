@@ -57,6 +57,7 @@ def parse_args():
     parser.add_argument("--int8", action='store_true', help='use int8', default=False)
     parser.add_argument("--jit", action='store_true', help='use jit', default=False)
     parser.add_argument("--mix-precision", action='store_true', help='use bf16', default=False)
+    parser.add_argument("--profiling", action='store_true', help='do profiling', default=False)
     parser.add_argument('--calibration', action='store_true', default=False,
                     help='doing int8 calibration step')
     parser.add_argument('--configure-dir', default='configure.json', type=str, metavar='PATH',
@@ -123,18 +124,52 @@ def eval(
             conf.save(args.configure_dir)
         # Inference (vanilla cpu, dnnl fp32 or dnnl int8)
         else:
-            total_time = 0
-            if args.steps:
-                assert args.steps > args.warm_up, "warm up steps should <= total steps"
-            else:
-                assert len(data_layer.data_iterator) > args.warm_up, "warm up steps should <= length of the dataset"
-            
-            for it, data in enumerate(tqdm(data_layer.data_iterator)):
-                t_audio_signal_e, t_a_sig_length_e, t_transcript_e, t_transcript_len_e = audio_processor(data)
-                if args.ipex and args.int8:
-                    conf = ipex.AmpConf(torch.int8, args.configure_dir)
+            # warm up
+            if args.warm_up > 0:
+                print("\nstart warm up, warmp_up steps = ", args.warm_up)            
+                for it, data in enumerate(tqdm(data_layer.data_iterator)):
+                    t_audio_signal_e, t_a_sig_length_e, t_transcript_e, t_transcript_len_e = audio_processor(data)
+                    if args.ipex and args.int8:
+                        conf = ipex.AmpConf(torch.int8, args.configure_dir)
 
-                    with ipex.AutoMixPrecision(conf, running_mode="inference"):
+                        with ipex.AutoMixPrecision(conf, running_mode="inference"):
+                            t0 = time.perf_counter()
+                            t_log_probs_e, (x_len, y_len) = encoderdecoder(
+                                    ((t_audio_signal_e, t_transcript_e), (t_a_sig_length_e, t_transcript_len_e)),
+                            )
+                            # print("before decode")
+                            t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e)
+                            t1 = time.perf_counter()
+
+                    else:
+                        t0 = time.perf_counter()
+                        t_log_probs_e, (x_len, y_len) = encoderdecoder(
+                                ((t_audio_signal_e, t_transcript_e), (t_a_sig_length_e, t_transcript_len_e)),
+                        )
+                        t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e)
+                        t1 = time.perf_counter()
+                    
+                    if it + 1 >= args.warm_up:
+                        break
+
+            # measure performance
+            print("\nstart measure performance, measure steps = ", args.steps)
+            total_time = 0
+            with torch.autograd.profiler.profile(args.profiling) as prof:
+                for it, data in enumerate(tqdm(data_layer.data_iterator)):
+                    t_audio_signal_e, t_a_sig_length_e, t_transcript_e, t_transcript_len_e = audio_processor(data)
+                    if args.ipex and args.int8:
+                        conf = ipex.AmpConf(torch.int8, args.configure_dir)
+
+                        with ipex.AutoMixPrecision(conf, running_mode="inference"):
+                            t0 = time.perf_counter()
+                            t_log_probs_e, (x_len, y_len) = encoderdecoder(
+                                    ((t_audio_signal_e, t_transcript_e), (t_a_sig_length_e, t_transcript_len_e)),
+                            )
+                            t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e)
+                            t1 = time.perf_counter()
+
+                    else:
                         t0 = time.perf_counter()
                         t_log_probs_e, (x_len, y_len) = encoderdecoder(
                                 ((t_audio_signal_e, t_transcript_e), (t_a_sig_length_e, t_transcript_len_e)),
@@ -142,33 +177,24 @@ def eval(
                         t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e)
                         t1 = time.perf_counter()
 
-                else:
-                    t0 = time.perf_counter()
-                    t_log_probs_e, (x_len, y_len) = encoderdecoder(
-                            ((t_audio_signal_e, t_transcript_e), (t_a_sig_length_e, t_transcript_len_e)),
-                    )
-                    t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e)
-                    t1 = time.perf_counter()
-                
-                if it >= args.warm_up:
                     total_time += (t1 - t0)
-                
-                values_dict = dict(
-                    predictions=[t_predictions_e],
-                    transcript=[t_transcript_e],
-                    transcript_length=[t_transcript_len_e],
-                    output=[t_log_probs_e]
-                )
-                process_evaluation_batch(values_dict, _global_var_dict, labels=labels)
 
-                if args.steps is not None and it + 1 >= args.steps:
-                    break
+                    values_dict = dict(
+                        predictions=[t_predictions_e],
+                        transcript=[t_transcript_e],
+                        transcript_length=[t_transcript_len_e],
+                        output=[t_log_probs_e]
+                    )
+                    process_evaluation_batch(values_dict, _global_var_dict, labels=labels)
+
+                    if args.steps is not None and it + 1 >= args.steps:
+                        break
 
             if args.print_result:
                 hypotheses = _global_var_dict['predictions']
                 references = _global_var_dict['transcripts']
 
-                nb = 10
+                nb = len(hypotheses)
                 print("print %d sample results: " % (min(len(hypotheses), nb)))
                 for i, item in enumerate(hypotheses):
                     print("hyp: ", hypotheses[i])
@@ -176,6 +202,9 @@ def eval(
                     print()
                     if i > nb:
                         break
+            
+            if args.profiling:
+                print(prof.key_averages().table(sort_by="cpu_time_total"))
 
             wer, _ = process_evaluation_epoch(_global_var_dict)
             if (not multi_gpu or (multi_gpu and torch.distributed.get_rank() == 0)):
@@ -191,8 +220,7 @@ def eval(
                     with open(logits_save_to, 'wb') as f:
                         pickle.dump(logits, f, protocol=pickle.HIGHEST_PROTOCOL)
 
-            total_steps = args.steps if args.steps else len(data_layer.data_iterator)
-            total_measure_steps = total_steps - args.warm_up
+            total_measure_steps = args.steps if args.steps else len(data_layer.data_iterator)
             latency = total_time / total_measure_steps
             perf = total_measure_steps / total_time * args.batch_size
             print('==========>>>>>>Inference latency %.3f s' % latency)
@@ -277,12 +305,14 @@ def main(args):
         if args.steps is not None:
             print('-----------------')
             print('Have {0} examples to eval on.'.format(args.steps * args.batch_size * (1 if not torch.distributed.is_initialized() else torch.distributed.get_world_size())))
-            print('Have {0} steps / (gpu * epoch).'.format(args.steps))
+            print('Have {0} warm up steps / (gpu * epoch).'.format(args.warm_up))
+            print('Have {0} measure steps / (gpu * epoch).'.format(args.steps))
             print('-----------------')
         else:
             print('-----------------')
             print('Have {0} examples to eval on.'.format(N))
-            print('Have {0} steps / (gpu * epoch).'.format(step_per_epoch))
+            print('Have {0} warm up steps / (gpu * epoch).'.format(args.warm_up))
+            print('Have {0} measure steps / (gpu * epoch).'.format(step_per_epoch))
             print('-----------------')
     else:
             audio_preprocessor.featurizer.normalize = "per_feature"
