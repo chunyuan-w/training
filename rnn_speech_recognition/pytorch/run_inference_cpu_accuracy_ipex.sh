@@ -30,12 +30,26 @@ if [ "$4" == "int8" ]; then
         BATCH_SIZE=2
         ARGS="$ARGS --calibration"
         echo "### running int8 calibration"
+    elif [ "$6" == "jit" ]; then 
+        ARGS="$ARGS --jit"
+        echo "### running jit path"
+        echo "### running int8 inference"
     else
         echo "### running int8 inference"
     fi
 elif [ "$4" == "bf16" ]; then
     ARGS="$ARGS --mix-precision"
     echo "### running bf16 inference"
+    if [ "$5" == "jit" ]; then
+        ARGS="$ARGS --jit"
+        echo "### running jit path"
+    fi
+elif [ "$4" == "fp32" ]; then
+    echo "### running fp32 inference"
+    if [ "$5" == "jit" ]; then
+        ARGS="$ARGS --jit"
+        echo "### running jit path"
+    fi
 fi
 
 
@@ -53,4 +67,4 @@ echo -e "### using OMP_NUM_THREADS=$TOTAL_CORES"
 echo -e "### using $KMP_SETTING\n\n"
 sleep 3
 
-python -u inference.py $ARGS $CONFIG_FILE --val_manifest $VAL_DATASET --model_toml configs/rnnt_ckpt.toml --batch_size $BATCH_SIZE --seed $SEED --jit
+python -u inference.py $ARGS $CONFIG_FILE --val_manifest $VAL_DATASET --model_toml configs/rnnt_ckpt.toml --batch_size $BATCH_SIZE --seed $SEED
