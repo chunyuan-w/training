@@ -112,9 +112,9 @@ def eval(
             for it, data in enumerate(tqdm(data_layer.data_iterator)):
                 t_audio_signal_e, t_a_sig_length_e, t_transcript_e, t_transcript_len_e = audio_processor(data)
                 with ipex.AutoMixPrecision(conf, running_mode="calibration"):
-                    t_log_probs_e, (x_len, y_len) = encoderdecoder(
-                            ((t_audio_signal_e, t_transcript_e), (t_a_sig_length_e, t_transcript_len_e)),
-                    )
+                    # t_log_probs_e, (x_len, y_len) = encoderdecoder(
+                    #         ((t_audio_signal_e, t_transcript_e), (t_a_sig_length_e, t_transcript_len_e)),
+                    # )
                     t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e)
 
                 if args.steps is not None and it + 1 >= args.steps:
@@ -135,17 +135,17 @@ def eval(
 
                     with ipex.AutoMixPrecision(conf, running_mode="inference"):
                         t0 = time.perf_counter()
-                        t_log_probs_e, (x_len, y_len) = encoderdecoder(
-                                ((t_audio_signal_e, t_transcript_e), (t_a_sig_length_e, t_transcript_len_e)),
-                        )
+                        # t_log_probs_e, (x_len, y_len) = encoderdecoder(
+                        #         ((t_audio_signal_e, t_transcript_e), (t_a_sig_length_e, t_transcript_len_e)),
+                        # )
                         t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e)
                         t1 = time.perf_counter()
 
                 else:
                     t0 = time.perf_counter()
-                    t_log_probs_e, (x_len, y_len) = encoderdecoder(
-                            ((t_audio_signal_e, t_transcript_e), (t_a_sig_length_e, t_transcript_len_e)),
-                    )
+                    # t_log_probs_e, (x_len, y_len) = encoderdecoder(
+                    #         ((t_audio_signal_e, t_transcript_e), (t_a_sig_length_e, t_transcript_len_e)),
+                    # )
                     t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e)
                     t1 = time.perf_counter()
                 
@@ -156,7 +156,7 @@ def eval(
                     predictions=[t_predictions_e],
                     transcript=[t_transcript_e],
                     transcript_length=[t_transcript_len_e],
-                    output=[t_log_probs_e]
+                    # output=[t_log_probs_e]
                 )
                 process_evaluation_batch(values_dict, _global_var_dict, labels=labels)
 
