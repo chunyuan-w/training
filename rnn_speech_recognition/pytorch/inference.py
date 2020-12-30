@@ -155,6 +155,8 @@ def eval(
             # measure performance
             print("\nstart measure performance, measure steps = ", args.steps)
             total_time = 0
+            t_encoder_decoder = 0
+            t_greedy_decoder = 0
             with torch.autograd.profiler.profile(args.profiling) as prof:
                 for it, data in enumerate(tqdm(data_layer.data_iterator)):
                     t_audio_signal_e, t_a_sig_length_e, t_transcript_e, t_transcript_len_e = audio_processor(data)
@@ -166,6 +168,7 @@ def eval(
                             t_log_probs_e, (x_len, y_len) = encoderdecoder(
                                     ((t_audio_signal_e, t_transcript_e), (t_a_sig_length_e, t_transcript_len_e)),
                             )
+                            t_ = time.perf_counter()
                             t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e)
                             t1 = time.perf_counter()
 
@@ -174,10 +177,13 @@ def eval(
                         t_log_probs_e, (x_len, y_len) = encoderdecoder(
                                 ((t_audio_signal_e, t_transcript_e), (t_a_sig_length_e, t_transcript_len_e)),
                         )
+                        t_ = time.perf_counter()
                         t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e)
                         t1 = time.perf_counter()
 
                     total_time += (t1 - t0)
+                    t_encoder_decoder += (t_ - t0)
+                    t_greedy_decoder += (t1 - t_)
 
                     values_dict = dict(
                         predictions=[t_predictions_e],
@@ -221,8 +227,22 @@ def eval(
                         pickle.dump(logits, f, protocol=pickle.HIGHEST_PROTOCOL)
 
             total_measure_steps = args.steps if args.steps else len(data_layer.data_iterator)
+
+            latency_encoder_decoder = t_encoder_decoder / total_measure_steps
+            perf_encoder_decoder = total_measure_steps / t_encoder_decoder
+
+            latency_greedy_decoder = t_greedy_decoder / total_measure_steps
+            perf_greedy_decoder = total_measure_steps / t_greedy_decoder
+
             latency = total_time / total_measure_steps
             perf = total_measure_steps / total_time * args.batch_size
+
+            print('==========>>>>>>EncoderDecoder latency %.3f s' % latency_encoder_decoder)
+            print('==========>>>>>>EncoderDecoder performance %.3f fps\n\n' % perf_encoder_decoder)
+
+            print('==========>>>>>>GreedyDecoder latency %.3f s' % latency_greedy_decoder)
+            print('==========>>>>>>GreedyDecoder performance %.3f fps\n\n' % perf_greedy_decoder)
+
             print('==========>>>>>>Inference latency %.3f s' % latency)
             print('==========>>>>>>Inference performance %.3f fps' % perf)
 
