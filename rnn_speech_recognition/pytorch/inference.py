@@ -32,7 +32,6 @@ import time
 
 import torchvision
 
-import intel_pytorch_extension as ipex
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Jasper')
@@ -80,6 +79,9 @@ def eval(
         multi_gpu: true if using multiple gpus
         args: script input arguments
     """
+    if args.ipex:
+        import intel_pytorch_extension as ipex
+
     logits_save_to=args.logits_save_to
     encoderdecoder.eval()
     with torch.no_grad():
@@ -256,6 +258,7 @@ def main(args):
         model.load_state_dict(checkpoint['state_dict'], strict=False)
 
     if args.ipex:
+        import intel_pytorch_extension as ipex
         model = model.to(ipex.DEVICE)
         ipex.core.enable_auto_dnnl()
         if args.mix_precision:
