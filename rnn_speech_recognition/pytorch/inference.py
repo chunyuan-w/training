@@ -115,8 +115,8 @@ def eval(
             conf = ipex.AmpConf(torch.int8)            
             for it, data in enumerate(tqdm(data_layer.data_iterator)):
                 t_audio_signal_e, t_a_sig_length_e, t_transcript_e, t_transcript_len_e = audio_processor(data)
-                with ipex.AutoMixPrecision(conf, running_mode="calibration"):
-                    t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e)
+                
+                t_predictions_e, conf = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e, args, conf)
 
                 if args.steps is not None and it + 1 >= args.steps:
                     break
@@ -130,12 +130,11 @@ def eval(
                     t_audio_signal_e, t_a_sig_length_e, t_transcript_e, t_transcript_len_e = audio_processor(data)
                     if args.ipex and args.int8:
                         conf = ipex.AmpConf(torch.int8, args.configure_dir)
-
-                        with ipex.AutoMixPrecision(conf, running_mode="inference"):
-                            t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e)
+                        t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e, args, conf)
 
                     else:
-                        t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e)
+                        conf = None
+                        t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e, args, conf)
                     
                     if it + 1 >= args.warm_up:
                         break
@@ -149,15 +148,14 @@ def eval(
                     t_audio_signal_e, t_a_sig_length_e, t_transcript_e, t_transcript_len_e = audio_processor(data)
                     if args.ipex and args.int8:
                         conf = ipex.AmpConf(torch.int8, args.configure_dir)
-
-                        with ipex.AutoMixPrecision(conf, running_mode="inference"):
-                            t0 = time.perf_counter()
-                            t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e)
-                            t1 = time.perf_counter()
+                        t0 = time.perf_counter()
+                        t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e, args, conf)
+                        t1 = time.perf_counter()
 
                     else:
+                        conf = None
                         t0 = time.perf_counter()
-                        t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e)
+                        t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e, args, conf)
                         t1 = time.perf_counter()
 
                     total_time += (t1 - t0)

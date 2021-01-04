@@ -71,7 +71,7 @@ class RNNTGreedyDecoder(TransducerDecoder):
         assert max_symbols_per_step is None or max_symbols_per_step > 0
         self.max_symbols = max_symbols_per_step
 
-    def decode(self, x, out_lens):
+    def decode(self, x, out_lens, args, conf=None):
         """Returns a list of sentences given an input batch.
 
         Args:
@@ -83,10 +83,19 @@ class RNNTGreedyDecoder(TransducerDecoder):
         Returns:
             list containing batch number of sentences (strings).
         """
+        if args.ipex:
+            import intel_pytorch_extension as ipex
         with torch.no_grad():
             # Apply optional preprocessing
-
-            logits, out_lens = self._model.encode((x, out_lens))
+            if args.ipex and args.int8 and args.calibration:
+                with ipex.AutoMixPrecision(conf, running_mode="calibration"):
+                    logits, out_lens = self._model.encode((x, out_lens))
+            else:
+                if args.ipex and args.int8:
+                    with ipex.AutoMixPrecision(conf, running_mode="inference"):
+                       logits, out_lens = self._model.encode((x, out_lens))
+                else:
+                    logits, out_lens = self._model.encode((x, out_lens))
 
             output = []
             for batch_idx in range(logits.size(0)):
@@ -95,7 +104,10 @@ class RNNTGreedyDecoder(TransducerDecoder):
                 sentence = self._greedy_decode(inseq, logitlen)
                 output.append(sentence)
 
-        return output
+        if args.ipex and args.int8 and args.calibration:
+            return output, conf
+        else:
+            return output
 
     def _greedy_decode(self, x, out_len):
         training_state = self._model.training
