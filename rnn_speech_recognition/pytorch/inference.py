@@ -32,7 +32,6 @@ import time
 
 import torchvision
 
-import intel_pytorch_extension as ipex
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Jasper')
@@ -82,6 +81,9 @@ def eval(
         multi_gpu: true if using multiple gpus
         args: script input arguments
     """
+    if args.ipex:
+        import intel_pytorch_extension as ipex
+
     logits_save_to=args.logits_save_to
     encoderdecoder.eval()
     with torch.no_grad():
@@ -114,9 +116,6 @@ def eval(
             for it, data in enumerate(tqdm(data_layer.data_iterator)):
                 t_audio_signal_e, t_a_sig_length_e, t_transcript_e, t_transcript_len_e = audio_processor(data)
                 with ipex.AutoMixPrecision(conf, running_mode="calibration"):
-                    t_log_probs_e, (x_len, y_len) = encoderdecoder(
-                            ((t_audio_signal_e, t_transcript_e), (t_a_sig_length_e, t_transcript_len_e)),
-                    )
                     t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e)
 
                 if args.steps is not None and it + 1 >= args.steps:
@@ -133,21 +132,10 @@ def eval(
                         conf = ipex.AmpConf(torch.int8, args.configure_dir)
 
                         with ipex.AutoMixPrecision(conf, running_mode="inference"):
-                            t0 = time.perf_counter()
-                            t_log_probs_e, (x_len, y_len) = encoderdecoder(
-                                    ((t_audio_signal_e, t_transcript_e), (t_a_sig_length_e, t_transcript_len_e)),
-                            )
-                            # print("before decode")
                             t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e)
-                            t1 = time.perf_counter()
 
                     else:
-                        t0 = time.perf_counter()
-                        t_log_probs_e, (x_len, y_len) = encoderdecoder(
-                                ((t_audio_signal_e, t_transcript_e), (t_a_sig_length_e, t_transcript_len_e)),
-                        )
                         t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e)
-                        t1 = time.perf_counter()
                     
                     if it + 1 >= args.warm_up:
                         break
@@ -155,9 +143,8 @@ def eval(
             # measure performance
             print("\nstart measure performance, measure steps = ", args.steps)
             total_time = 0
-            t_encoder_decoder = 0
-            t_greedy_decoder = 0
             with torch.autograd.profiler.profile(args.profiling) as prof:
+            # with torch.autograd.profiler.profile(args.profiling, record_shapes=True) as prof:
                 for it, data in enumerate(tqdm(data_layer.data_iterator)):
                     t_audio_signal_e, t_a_sig_length_e, t_transcript_e, t_transcript_len_e = audio_processor(data)
                     if args.ipex and args.int8:
@@ -165,31 +152,20 @@ def eval(
 
                         with ipex.AutoMixPrecision(conf, running_mode="inference"):
                             t0 = time.perf_counter()
-                            t_log_probs_e, (x_len, y_len) = encoderdecoder(
-                                    ((t_audio_signal_e, t_transcript_e), (t_a_sig_length_e, t_transcript_len_e)),
-                            )
-                            t_ = time.perf_counter()
                             t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e)
                             t1 = time.perf_counter()
 
                     else:
                         t0 = time.perf_counter()
-                        t_log_probs_e, (x_len, y_len) = encoderdecoder(
-                                ((t_audio_signal_e, t_transcript_e), (t_a_sig_length_e, t_transcript_len_e)),
-                        )
-                        t_ = time.perf_counter()
                         t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e)
                         t1 = time.perf_counter()
 
                     total_time += (t1 - t0)
-                    t_encoder_decoder += (t_ - t0)
-                    t_greedy_decoder += (t1 - t_)
 
                     values_dict = dict(
                         predictions=[t_predictions_e],
                         transcript=[t_transcript_e],
                         transcript_length=[t_transcript_len_e],
-                        output=[t_log_probs_e]
                     )
                     process_evaluation_batch(values_dict, _global_var_dict, labels=labels)
 
@@ -211,6 +187,7 @@ def eval(
             
             if args.profiling:
                 print(prof.key_averages().table(sort_by="cpu_time_total"))
+                # print(prof.key_averages(group_by_input_shape=True).table(sort_by="self_cpu_time_total"))
 
             wer, _ = process_evaluation_epoch(_global_var_dict)
             if (not multi_gpu or (multi_gpu and torch.distributed.get_rank() == 0)):
@@ -228,20 +205,8 @@ def eval(
 
             total_measure_steps = args.steps if args.steps else len(data_layer.data_iterator)
 
-            latency_encoder_decoder = t_encoder_decoder / total_measure_steps
-            perf_encoder_decoder = total_measure_steps / t_encoder_decoder
-
-            latency_greedy_decoder = t_greedy_decoder / total_measure_steps
-            perf_greedy_decoder = total_measure_steps / t_greedy_decoder
-
             latency = total_time / total_measure_steps
             perf = total_measure_steps / total_time * args.batch_size
-
-            print('==========>>>>>>EncoderDecoder latency %.3f s' % latency_encoder_decoder)
-            print('==========>>>>>>EncoderDecoder performance %.3f fps\n\n' % perf_encoder_decoder)
-
-            print('==========>>>>>>GreedyDecoder latency %.3f s' % latency_greedy_decoder)
-            print('==========>>>>>>GreedyDecoder performance %.3f fps\n\n' % perf_greedy_decoder)
 
             print('==========>>>>>>Inference latency %.3f s' % latency)
             print('==========>>>>>>Inference performance %.3f fps' % perf)
@@ -305,6 +270,7 @@ def main(args):
         model.load_state_dict(checkpoint['state_dict'], strict=False)
 
     if args.ipex:
+        import intel_pytorch_extension as ipex
         model = model.to(ipex.DEVICE)
         ipex.core.enable_auto_dnnl()
         if args.mix_precision:

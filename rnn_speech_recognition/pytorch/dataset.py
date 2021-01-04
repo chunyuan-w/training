@@ -178,6 +178,7 @@ class AudioToTextDataLayer:
                 drop_last=drop_last,
                 shuffle=shuffle if self.sampler is None else False,
                 num_workers=4,
+                # num_workers=4,
                 pin_memory=True,
                 sampler=self.sampler
             )
