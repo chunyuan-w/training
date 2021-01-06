@@ -235,6 +235,50 @@ class RNNT(torch.nn.Module):
         del y, start, state
         return g, hid
 
+    def predict_batch(self, y, state=None, b=1):
+        """
+        B - batch size
+        U - label length
+        H - Hidden dimension size
+        L - Number of decoder layers = 2
+
+        Args:
+            y: (B, U)
+
+        Returns:
+            Tuple (g, hid) where:
+                g: (B, U + 1, H)
+                hid: (h, c) where h is the final sequence hidden state and c is
+                    the final cell state:
+                        h (tensor), shape (L, B, H)
+                        c (tensor), shape (L, B, H)
+        """
+        # SOS hack, there is no SOS, and SOS should as if embedding give 0.0
+        # So identify SOS and fill lookup result with 0.0
+        # If embedding table contains SOS token this would save a lot of
+        # trouble
+
+        self._SOS = -1
+        y_mask = y.eq(self._SOS)
+        y.masked_fill_(y_mask, 0)
+        y = self.prediction["embed"](y)
+        y.masked_fill_(y_mask.unsqueeze(2), 0.0)
+
+        # if state is None:
+        #    batch = y.size(0)
+        #    state = [
+        #        (torch.zeros(batch, self.pred_n_hidden, dtype=y.dtype, device=y.device),
+        #         torch.zeros(batch, self.pred_n_hidden, dtype=y.dtype, device=y.device))
+        #        for _ in range(self.pred_rnn_layers)
+        #    ]
+
+        y = y.transpose_(0, 1)  # .contiguous()   # (U + 1, B, H)
+        g, hid = self.prediction["dec_rnn"](y, state)
+        g = g.transpose_(0, 1)  # .contiguous()   # (B, U + 1, H)
+        # del y, state
+        return g, hid
+        
+
     def joint(self, f, g):
         """
         f should be shape (B, T, H)

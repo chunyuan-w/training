@@ -97,12 +97,13 @@ class RNNTGreedyDecoder(TransducerDecoder):
                 else:
                     logits, out_lens = self._model.encode((x, out_lens))
 
-            output = []
-            for batch_idx in range(logits.size(0)):
-                inseq = logits[batch_idx, :, :].unsqueeze(1)
-                logitlen = out_lens[batch_idx]
-                sentence = self._greedy_decode(inseq, logitlen)
-                output.append(sentence)
+            # output = []
+            # for batch_idx in range(logits.size(0)):
+            #     inseq = logits[batch_idx, :, :].unsqueeze(1)
+            #     logitlen = out_lens[batch_idx]
+            #     sentence = self._greedy_decode(inseq, logitlen)
+            #     output.append(sentence)
+            output = self._greedy_decode_batch(logits, out_lens)
 
         if args.ipex and args.int8 and args.calibration:
             return output, conf
@@ -146,3 +147,112 @@ class RNNTGreedyDecoder(TransducerDecoder):
 
         self._model.train(training_state)
         return label
+
+    def _greedy_decode_batch(self, x, out_lens):
+        batch_size = x.size(0)
+        hidden = None
+        max_len = out_lens.max()
+        max_lens = torch.tensor([max_len-1 for i in range(batch_size)], dtype=torch.int64)
+        # pos 0 of label_tensor is set to _SOS to simplify computation
+        # real label start from pos 1
+        label_tensor = torch.tensor([self._SOS for i in range(batch_size*max_len*self.max_symbols)], dtype=torch.int64).view(batch_size, max_len*self.max_symbols)
+        # (row, col) of current labels end
+        label_row = torch.tensor([i for i in range(batch_size)])
+        label_col = torch.tensor([0 for i in range(batch_size)])
+        # this list will be used to return labels to caller
+        label_copy = [0 for i in range(batch_size)]
+        # initially time_idx is 0 for all input
+        # then advance time_idx for each 'track' when needed and update f
+        f = x[:, 0, :].unsqueeze(1)
+        time_idxs = torch.tensor([0 for i in range(batch_size)], dtype=torch.int64)
+
+        not_blank = True
+        blank_vec = torch.tensor([False for i in range(batch_size)])
+        symbols_added = torch.tensor([0 for i in range(batch_size)], dtype=torch.int64)
+
+        while True:
+            g, hidden_prime = self._pred_step_batch(
+                label_tensor.gather(1, label_col.unsqueeze(1)),
+                hidden,
+                batch_size
+            )
+            logp = self._joint_step_batch(f, g, log_normalize=False)
+
+            # get index k, of max prob
+            v, k = logp.max(1)
+
+            # if any of the output is blank, pull in the next time_idx for next f
+            # tmp_blank_vec is the vect used to mix new hidden state with previous hidden state
+            # blank_vec is the baseline of blank_vec, it turns to blank only when run out of time_idx
+            blankness = k.eq(self._blank_id)
+            time_idxs = time_idxs + blankness
+            symbols_added *= blankness.logical_not()
+            # it doesn't matter if blank_vec is update now or later,
+            # tmp_blank_vec always get correct value for this round
+            blank_vec = time_idxs.ge(out_lens)
+            tmp_blank_vec = blank_vec.logical_or(blankness)
+
+            # TODO count_nonzero()
+            # if blank_vec.count_nonzero() == batch_size:
+            if blank_vec.nonzero().size(0) == batch_size:
+                # all time_idxs processed, stop
+                break
+            else:
+                # If for sample blankid already encountered, then stop
+                # update hidden values until input from next time step.
+                # So we would mix value of hidden and hidden_prime together,
+                # keep values in hidden where blank_vec[i] is true
+                mask0 = tmp_blank_vec.unsqueeze(1).unsqueeze(0).eq(0)
+                mask1 = tmp_blank_vec.unsqueeze(1).unsqueeze(0).eq(1)
+
+                hidden_prime[0].masked_fill_(mask1, 0.0)
+                hidden_prime[1].masked_fill_(mask1, 0.0)
+
+                if hidden == None:
+                    hidden = hidden_prime
+                else:
+                    hidden[0].masked_fill_(mask0, 0.0).add_(hidden_prime[0])
+                    hidden[1].masked_fill_(mask0, 0.0).add_(hidden_prime[1])
+
+            label_col += tmp_blank_vec.eq(False)
+            label_tensor.index_put_([label_row, label_col], (k-self._SOS)*tmp_blank_vec.eq(False), accumulate=True)
+
+            symbols_added += tmp_blank_vec.eq(False)
+            time_idxs += symbols_added.ge(self.max_symbols)
+            blankness.logical_or(symbols_added.ge(self.max_symbols))
+            symbols_added *= symbols_added.lt(self.max_symbols)
+
+            # update f if necessary
+            # if at least one id in blankness is blank them time_idx is updated
+            # and we need to update f accordingly
+
+            # TODO nonzero()
+            # if blankness.count_nonzero() > 0:
+            if blankness.nonzero().size(0) > 0:
+                fetch_time_idxs = time_idxs.min(max_lens)
+                # select tensor along second dim of x
+                # implement something like --> f = x[:, fetch_time_idxs, :].unsqueeze(1)
+                # for example, if all elements in fetch_time_idxs = n, then
+                # this is equivelent to f = x[:, n, :].unsqueeze(1)
+                dim = f.size()[2]
+                f = x.gather(1, fetch_time_idxs.unsqueeze(1).repeat(1, dim).unsqueeze(1))[:, 0, :].unsqueeze(1)
+
+        for i in range(batch_size):
+            label_copy[i]=label_tensor[i][1:label_col[i]+1].tolist()
+        return label_copy
+
+    def _pred_step_batch(self, label, hidden, batch_size):
+        # not really need this line, _blank_id is the last id of dict
+        #label = label - label.gt(self._blank_id).int()
+        result = self._model.predict_batch(label, hidden, batch_size)
+        return result
+
+    def _joint_step_batch(self, enc, pred, log_normalize=False):
+        logits = self._model.joint(enc, pred)
+        logits = logits[:, 0, 0, :]
+        if not log_normalize:
+            return logits
+
+        probs = F.log_softmax(logits, dim=len(logits.shape) - 1)
+
+        return probs
