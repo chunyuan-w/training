@@ -132,7 +132,8 @@ class Manifest(object):
                         break
 
         if sort_by_duration:
-            ids = sorted(ids, key=lambda x: x['duration'])
+            # ids = sorted(ids, key=lambda x: x['duration'])
+            ids = sorted(ids, key=lambda x: x['duration'], reverse=True)
         self._data = ids
         self._size = len(ids)
         self._duration = duration

@@ -204,7 +204,8 @@ def eval(
             total_measure_steps = args.steps if args.steps else len(data_layer.data_iterator)
 
             latency = total_time / total_measure_steps
-            perf = total_measure_steps / total_time * args.batch_size
+            # perf = total_measure_steps / total_time * args.batch_size
+            perf = len(data_layer) / total_time
 
             print('==========>>>>>>Inference latency %.3f s' % latency)
             print('==========>>>>>>Inference performance %.3f fps' % perf)
@@ -248,6 +249,7 @@ def main(args):
             dataset_dir=args.dataset_dir, 
             featurizer_config=featurizer_config,
             manifest_filepath=val_manifest,
+            # sampler='bucket',
             labels=dataset_vocab,
             batch_size=args.batch_size,
             pad_to_max=featurizer_config['pad_to'] == "max",

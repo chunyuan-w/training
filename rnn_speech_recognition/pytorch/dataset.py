@@ -155,7 +155,8 @@ class AudioToTextDataLayer:
         multi_gpu = kwargs.get('multi_gpu', False)
         sampler_type = kwargs.get('sampler', 'default')
         speed_perturbation = featurizer_config.get('speed_perturbation', False)
-        sort_by_duration=sampler_type == 'bucket'
+        # sort_by_duration=sampler_type == 'bucket'
+        sort_by_duration=True
         self._featurizer = WaveformFeaturizer.from_config(featurizer_config, perturbation_configs=perturb_config)
         self._dataset = AudioDataset(
             dataset_dir=dataset_dir,

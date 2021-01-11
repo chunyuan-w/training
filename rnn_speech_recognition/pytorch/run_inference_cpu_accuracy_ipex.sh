@@ -3,7 +3,7 @@
 export DNNL_PRIMITIVE_CACHE_CAPACITY=1024
 
 SEED=2020
-BATCH_SIZE=1
+BATCH_SIZE=448
 
 CONFIG_FILE=""
 
@@ -27,7 +27,7 @@ if [ "$4" == "int8" ]; then
 
     if [ "$6" == "calibration" ]; then
         # TODO: why 2 in RN50? 
-        BATCH_SIZE=2
+        BATCH_SIZE=1
         ARGS="$ARGS --calibration"
         echo "### running int8 calibration"
     elif [ "$6" == "jit" ]; then 
