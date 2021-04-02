@@ -96,14 +96,16 @@ class RNNTGreedyDecoder(TransducerDecoder):
                        logits, out_lens = self._model.encode((x, out_lens))
                 else:
                     logits, out_lens = self._model.encode((x, out_lens))
-            # # int8 encoder + bf16 decoder
-            # if args.ipex and args.int8:
-            #     # reorder data back to fp32
-            #     logits = logits.to("cpu")
+            
+            # TODO: directly reorder from int8 to bf16
+            # int8 encoder + bf16 decoder
+            if args.ipex and args.int8:
+                # reorder data back to fp32
+                logits = logits.to("cpu")
 
-            #     # enable bf16 for decoder part
-            #     logits = logits.to(ipex.DEVICE)
-            #     ipex.enable_auto_mixed_precision(mixed_dtype=torch.bfloat16)
+                # enable bf16 for decoder part
+                logits = logits.to(ipex.DEVICE)
+                ipex.enable_auto_mixed_precision(mixed_dtype=torch.bfloat16)
 
             output = []
             for batch_idx in range(logits.size(0)):
