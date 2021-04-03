@@ -34,6 +34,13 @@ if [ "$4" == "int8" ]; then
         ARGS="$ARGS --jit"
         echo "### running jit path"
         echo "### running int8 inference"
+
+        if [ "$7" == "dynamic" ]; then 
+            ARGS="$ARGS --dynamic"
+            echo "### running dynamic quantization"
+        else
+            echo "### running static quantization"
+        fi
     else
         echo "### running int8 inference"
     fi
@@ -67,4 +74,5 @@ echo -e "### using OMP_NUM_THREADS=$TOTAL_CORES"
 echo -e "### using $KMP_SETTING\n\n"
 sleep 3
 
-python -u inference.py $ARGS $CONFIG_FILE --val_manifest $VAL_DATASET --model_toml configs/rnnt_ckpt.toml --batch_size $BATCH_SIZE --seed $SEED
+python -u inference.py $ARGS $CONFIG_FILE --val_manifest $VAL_DATASET --model_toml configs/rnnt_ckpt.toml --batch_size $BATCH_SIZE --seed $SEED --warm_up 1 --steps 3
+# --steps 1

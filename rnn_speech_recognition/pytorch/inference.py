@@ -55,6 +55,7 @@ def parse_args():
     parser.add_argument("--ipex", action='store_true', help='use ipex', default=False)
     parser.add_argument("--int8", action='store_true', help='use int8', default=False)
     parser.add_argument("--jit", action='store_true', help='use jit', default=False)
+    parser.add_argument("--dynamic", action='store_true', help='use dynamic quantization', default=False)
     parser.add_argument("--mix-precision", action='store_true', help='use bf16', default=False)
     parser.add_argument("--profiling", action='store_true', help='do profiling', default=False)
     parser.add_argument('--calibration', action='store_true', default=False,
@@ -128,13 +129,24 @@ def eval(
                 print("\nstart warm up, warmp_up steps = ", args.warm_up)            
                 for it, data in enumerate(tqdm(data_layer.data_iterator)):
                     t_audio_signal_e, t_a_sig_length_e, t_transcript_e, t_transcript_len_e = audio_processor(data)
-                    if args.ipex and args.int8:
-                        conf = ipex.AmpConf(torch.int8, args.configure_dir)
-                        t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e, args, conf)
 
+                    if args.dynamic:
+                        assert args.jit, "should use JIT model for dynamic quantization"
+                        assert (args.ipex and args.int8), "should enable ipex and int8 for dynamic quantization"
+                        
+                        import intel_pytorch_extension as ipex
+                        # TODO: remove conf for dynamic quantization
+                        conf = ipex.AmpConf(torch.int8, args.configure_dir)
+                        with ipex.AutoMixPrecision(conf, running_mode="inference"):
+                            t_predictions_e = greedy_decoder.decode_dynamic(t_audio_signal_e, t_a_sig_length_e)
                     else:
-                        conf = None
-                        t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e, args, conf)
+                        if args.ipex and args.int8:
+                            conf = ipex.AmpConf(torch.int8, args.configure_dir)
+                            t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e, args, conf)
+
+                        else:
+                            conf = None
+                            t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e, args, conf)
                     
                     if it + 1 >= args.warm_up:
                         break
@@ -146,17 +158,29 @@ def eval(
             # with torch.autograd.profiler.profile(args.profiling, record_shapes=True) as prof:
                 for it, data in enumerate(tqdm(data_layer.data_iterator)):
                     t_audio_signal_e, t_a_sig_length_e, t_transcript_e, t_transcript_len_e = audio_processor(data)
-                    if args.ipex and args.int8:
+                    
+                    if args.dynamic:
+                        assert args.jit, "should use JIT model for dynamic quantization"
+                        assert (args.ipex and args.int8), "should enable ipex and int8 for dynamic quantization"
+                        
+                        # TODO: remove conf for dynamic quantization
                         conf = ipex.AmpConf(torch.int8, args.configure_dir)
                         t0 = time.perf_counter()
-                        t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e, args, conf)
+                        with ipex.AutoMixPrecision(conf, running_mode="inference"):
+                            t_predictions_e = greedy_decoder.decode_dynamic(t_audio_signal_e, t_a_sig_length_e)
                         t1 = time.perf_counter()
-
                     else:
-                        conf = None
-                        t0 = time.perf_counter()
-                        t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e, args, conf)
-                        t1 = time.perf_counter()
+                        if args.ipex and args.int8:
+                            conf = ipex.AmpConf(torch.int8, args.configure_dir)
+                            t0 = time.perf_counter()
+                            t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e, args, conf)
+                            t1 = time.perf_counter()
+
+                        else:
+                            conf = None
+                            t0 = time.perf_counter()
+                            t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e, args, conf)
+                            t1 = time.perf_counter()
 
                     total_time += (t1 - t0)
 

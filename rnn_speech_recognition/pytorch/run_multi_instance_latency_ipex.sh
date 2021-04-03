@@ -33,6 +33,13 @@ if [ "$4" == "int8" ]; then
         ARGS="$ARGS --jit"
         echo "### running jit path"
         echo "### running int8 inference"
+
+        if [ "$7" == "dynamic" ]; then 
+            ARGS="$ARGS --dynamic"
+            echo "### running dynamic quantization"
+        else
+            echo "### running static quantization"
+        fi
     else
         echo "### running int8 inference"
     fi

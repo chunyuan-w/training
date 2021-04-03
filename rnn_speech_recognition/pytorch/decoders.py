@@ -119,6 +119,30 @@ class RNNTGreedyDecoder(TransducerDecoder):
         else:
             return output
 
+    def decode_dynamic(self, x, out_lens):
+        """Returns a list of sentences given an input batch.
+
+        Args:
+            x: A tensor of size (batch, channels, features, seq_len)
+                TODO was (seq_len, batch, in_features).
+            out_lens: list of int representing the length of each sequence
+                output sequence.
+
+        Returns:
+            list containing batch number of sentences (strings).
+        """
+        with torch.no_grad():
+            # Apply optional preprocessing
+            logits, out_lens = self._model.encode((x, out_lens))
+            
+            output = []
+            for batch_idx in range(logits.size(0)):
+                inseq = logits[batch_idx, :, :].unsqueeze(1)
+                logitlen = out_lens[batch_idx]
+                sentence = self._greedy_decode(inseq, logitlen)
+                output.append(sentence)
+        return output
+
     def _greedy_decode(self, x, out_len):
         training_state = self._model.training
         self._model.eval()
