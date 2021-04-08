@@ -103,6 +103,17 @@ class RNNTGreedyDecoder(TransducerDecoder):
             #     logitlen = out_lens[batch_idx]
             #     sentence = self._greedy_decode(inseq, logitlen)
             #     output.append(sentence)
+            
+            # TODO: directly reorder from int8 to bf16
+            # int8 encoder + bf16 decoder
+            if args.ipex and args.int8 and not args.calibration:
+                # reorder data back to fp32
+                logits = logits.to("cpu")
+                logits = logits.to(ipex.DEVICE)
+                
+                # enable bf16 for decoder part
+                ipex.enable_auto_mixed_precision(mixed_dtype=torch.bfloat16)
+
             output = self._greedy_decode_batch(logits, out_lens)
 
         if args.ipex and args.int8 and args.calibration:
