@@ -60,7 +60,7 @@ CORES_PER_INSTANCE=$CORES
 
 KMP_SETTING="KMP_AFFINITY=granularity=fine,compact,1,0"
 
-BATCH_SIZE=448
+BATCH_SIZE=56
 
 export OMP_NUM_THREADS=$CORES_PER_INSTANCE
 export $KMP_SETTING
@@ -80,7 +80,7 @@ for i in $(seq 1 $LAST_INSTANCE); do
 
     echo "### running on instance $i, numa node $numa_node_i, core list {$start_core_i, $end_core_i}..."
     numactl --physcpubind=$start_core_i-$end_core_i --membind=$numa_node_i python -u inference.py \
-     $ARGS $CONFIG_FILE --val_manifest $VAL_DATASET --model_toml configs/rnnt_ckpt.toml --batch_size $BATCH_SIZE --seed $SEED 2>&1 | tee $LOG_i &
+     $ARGS $CONFIG_FILE --val_manifest $VAL_DATASET --model_toml configs/rnnt_ckpt.toml --batch_size $BATCH_SIZE --seed $SEED --warm_up 5 2>&1 | tee $LOG_i &
 done
 
 numa_node_0=0
@@ -90,7 +90,7 @@ LOG_0=inference_thp_bs${BATCH_SIZE}_ins0.txt
 
 echo "### running on instance 0, numa node $numa_node_0, core list {$start_core_0, $end_core_0}...\n\n"
 numactl --physcpubind=$start_core_0-$end_core_0 --membind=$numa_node_0 python -u inference.py \
-     $ARGS $CONFIG_FILE --val_manifest $VAL_DATASET --model_toml configs/rnnt_ckpt.toml --batch_size $BATCH_SIZE --seed $SEED 2>&1 | tee $LOG_0
+     $ARGS $CONFIG_FILE --val_manifest $VAL_DATASET --model_toml configs/rnnt_ckpt.toml --batch_size $BATCH_SIZE --seed $SEED --warm_up 5 2>&1 | tee $LOG_0
 
 sleep 10
 echo -e "\n\n Throughput:"
