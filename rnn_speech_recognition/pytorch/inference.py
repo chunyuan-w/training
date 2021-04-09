@@ -213,7 +213,7 @@ def eval(
 
             wer, _ = process_evaluation_epoch(_global_var_dict)
             if (not multi_gpu or (multi_gpu and torch.distributed.get_rank() == 0)):
-                print("\n==========>>>>>>Evaluation WER: {0}".format(wer))
+                print("\n==========>>>>>>Evaluation Word Error Rate: {0} %, Evaluation Accuracy: {1} %".format(wer * 100, (1-wer) * 100))
                 if args.save_prediction is not None:
                     with open(args.save_prediction, 'w') as fp:
                         fp.write('\n'.join(_global_var_dict['predictions']))
