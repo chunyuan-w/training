@@ -33,6 +33,9 @@ if [ "$4" == "int8" ]; then
         ARGS="$ARGS --jit"
         echo "### running jit path"
         echo "### running int8 inference"
+        if [ "$7" == "print" ]; then
+            ARGS="$ARGS --print_time"
+        fi
     else
         echo "### running int8 inference"
     fi
@@ -42,12 +45,18 @@ elif [ "$4" == "bf16" ]; then
     if [ "$5" == "jit" ]; then
         ARGS="$ARGS --jit"
         echo "### running jit path"
+        if [ "$6" == "print" ]; then
+            ARGS="$ARGS --print_time"
+        fi
     fi
 elif [ "$4" == "fp32" ]; then
     echo "### running fp32 inference"
     if [ "$5" == "jit" ]; then
         ARGS="$ARGS --jit"
         echo "### running jit path"
+        if [ "$6" == "print" ]; then
+            ARGS="$ARGS --print_time"
+        fi
     fi
 fi
 

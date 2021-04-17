@@ -18,6 +18,8 @@ import torch
 import torch.nn.functional as F
 from model_rnnt import label_collate
 
+import time
+
 class TransducerDecoder:
     """Decoder base class.
 
@@ -86,6 +88,8 @@ class RNNTGreedyDecoder(TransducerDecoder):
         if args.ipex:
             import intel_pytorch_extension as ipex
         with torch.no_grad():
+            if args.print_time:
+                t0 = time.time()
             # Apply optional preprocessing
             if args.ipex and args.int8 and args.calibration:
                 with ipex.AutoMixPrecision(conf, running_mode="calibration"):
@@ -104,6 +108,9 @@ class RNNTGreedyDecoder(TransducerDecoder):
             #     sentence = self._greedy_decode(inseq, logitlen)
             #     output.append(sentence)
             
+            if args.print_time:
+                t1 = time.time()
+
             # TODO: directly reorder from int8 to bf16
             # int8 encoder + bf16 decoder
             if args.ipex and args.int8 and not args.calibration:
@@ -115,6 +122,9 @@ class RNNTGreedyDecoder(TransducerDecoder):
                 ipex.enable_auto_mixed_precision(mixed_dtype=torch.bfloat16)
 
             output = self._greedy_decode_batch(logits, out_lens)
+
+            if args.print_time:
+                print("encoder time: {0}, decoder time: {1}".format(t1 - t0, time.time() - t1))
 
         if args.ipex and args.int8 and args.calibration:
             return output, conf

@@ -52,6 +52,7 @@ def parse_args():
     parser.add_argument("--wav", type=str, help='absolute path to .wav file (16KHz)')
     parser.add_argument("--warm_up", help='warm up steps, will only measure the performance from step=warm_up to step=(steps-warm_up)', type=int, default=0)
     parser.add_argument("--print-result", action='store_true', help='print prediction results', default=False)
+    parser.add_argument("--print_time", action='store_true', help='print encoder decoder time', default=False)
     parser.add_argument("--ipex", action='store_true', help='use ipex', default=False)
     parser.add_argument("--int8", action='store_true', help='use int8', default=False)
     parser.add_argument("--jit", action='store_true', help='use jit', default=False)
@@ -94,11 +95,14 @@ def eval(
         }
 
         # use the shortest audio to do warm-up
-        sorted_data_layer = []
-        for it, data in enumerate(data_layer.data_iterator):
-            sorted_data_layer.append(data)
-        
-        sorted_data_layer = sorted_data_layer[::-1]
+        if args.batch_size == 1:
+            sorted_data_layer = data_layer.data_iterator
+        else:
+            sorted_data_layer = []
+            for it, data in enumerate(data_layer.data_iterator):
+                sorted_data_layer.append(data)
+            
+            sorted_data_layer = sorted_data_layer[::-1]
 
         if args.wav:
             # TODO unimplemented in ipex
@@ -132,7 +136,7 @@ def eval(
             # warm up
             if args.warm_up > 0:
                 print("\nstart warm up, warmp_up steps = ", args.warm_up)            
-                for it, data in enumerate(tqdm(sorted_data_layer)):
+                for it, data in enumerate(sorted_data_layer):
                     t_audio_signal_e, t_a_sig_length_e, t_transcript_e, t_transcript_len_e = audio_processor(data)
                     if args.ipex and args.int8:
                         conf = ipex.AmpConf(torch.int8, args.configure_dir)
@@ -150,7 +154,7 @@ def eval(
             total_time = 0
             with torch.autograd.profiler.profile(args.profiling) as prof:
             # with torch.autograd.profiler.profile(args.profiling, record_shapes=True) as prof:
-                for it, data in enumerate(tqdm(data_layer.data_iterator)):
+                for it, data in enumerate(data_layer.data_iterator):
                     t_audio_signal_e, t_a_sig_length_e, t_transcript_e, t_transcript_len_e = audio_processor(data)
                     if args.ipex and args.int8:
                         conf = ipex.AmpConf(torch.int8, args.configure_dir)
