@@ -152,10 +152,10 @@ def eval(
             # measure performance
             print("\nstart measure performance, measure steps = ", args.steps)
             total_time = 0
-            with torch.autograd.profiler.profile(args.profiling) as prof:
             # with torch.autograd.profiler.profile(args.profiling, record_shapes=True) as prof:
-                for it, data in enumerate(data_layer.data_iterator):
-                    t_audio_signal_e, t_a_sig_length_e, t_transcript_e, t_transcript_len_e = audio_processor(data)
+            for it, data in enumerate(data_layer.data_iterator):
+                t_audio_signal_e, t_a_sig_length_e, t_transcript_e, t_transcript_len_e = audio_processor(data)
+                with torch.autograd.profiler.profile(args.profiling) as prof:
                     if args.ipex and args.int8:
                         conf = ipex.AmpConf(torch.int8, args.configure_dir)
                         t0 = time.perf_counter()
@@ -168,17 +168,17 @@ def eval(
                         t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e, args, conf)
                         t1 = time.perf_counter()
 
-                    total_time += (t1 - t0)
+                total_time += (t1 - t0)
 
-                    values_dict = dict(
-                        predictions=[t_predictions_e],
-                        transcript=[t_transcript_e],
-                        transcript_length=[t_transcript_len_e],
-                    )
-                    process_evaluation_batch(values_dict, _global_var_dict, labels=labels)
+                values_dict = dict(
+                    predictions=[t_predictions_e],
+                    transcript=[t_transcript_e],
+                    transcript_length=[t_transcript_len_e],
+                )
+                process_evaluation_batch(values_dict, _global_var_dict, labels=labels)
 
-                    if args.steps is not None and it + 1 >= args.steps:
-                        break
+                if args.steps is not None and it + 1 >= args.steps:
+                    break
 
             if args.print_result:
                 hypotheses = _global_var_dict['predictions']
@@ -194,8 +194,8 @@ def eval(
                         break
             
             if args.profiling:
-                print(prof.key_averages().table(sort_by="cpu_time_total"))
-                # print(prof.key_averages(group_by_input_shape=True).table(sort_by="self_cpu_time_total"))
+                # print(prof.key_averages().table(sort_by="cpu_time_total"))
+                print(prof.key_averages(group_by_input_shape=True).table(sort_by="self_cpu_time_total"))
 
             wer, _ = process_evaluation_epoch(_global_var_dict)
             if (not multi_gpu or (multi_gpu and torch.distributed.get_rank() == 0)):
