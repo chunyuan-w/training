@@ -93,6 +93,12 @@ def eval(
             'logits' : [],
         }
 
+        # use the shortest audio to do warm-up
+        sorted_data_layer = []
+        for it, data in enumerate(data_layer.data_iterator):
+            sorted_data_layer.append(data)
+        
+        sorted_data_layer = sorted_data_layer[::-1]
 
         if args.wav:
             # TODO unimplemented in ipex
@@ -126,7 +132,7 @@ def eval(
             # warm up
             if args.warm_up > 0:
                 print("\nstart warm up, warmp_up steps = ", args.warm_up)            
-                for it, data in enumerate(tqdm(data_layer.data_iterator)):
+                for it, data in enumerate(tqdm(sorted_data_layer)):
                     t_audio_signal_e, t_a_sig_length_e, t_transcript_e, t_transcript_len_e = audio_processor(data)
                     if args.ipex and args.int8:
                         conf = ipex.AmpConf(torch.int8, args.configure_dir)
