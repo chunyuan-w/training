@@ -1,3 +1,30 @@
+pytorch:
+branch: chunyuan/lstm_mkldnn (https://github.com/chunyuan-w/pytorch.git)
+commit 85d0c7eb79ea60f49243f1a5c2f3c5716a947854
+Author: chunyuan-w <chunyuan.wu@intel.com>
+Date:   Wed Apr 28 18:44:22 2021 +0800
+
+    rename lstm_forward in ideep
+
++
+autocast.patch
+
+ipex:
+branch: chunyuan/lstm_cpu_bf16
+commit 8f02f4054a46331e7cdcd61b2d074b61de3deb20
+Author: chunyuan-w <chunyuan.wu@intel.com>
+Date:   Wed Apr 28 11:05:40 2021 +0800
+
+    register lstm for autocast bf16 path # TODO: no need to hook the lstm?
+
+ideep: 
+branch: 1source/chunyuan/lstm_pr (https://github.com/intel-innersource/frameworks.ai.pytorch.ideep.git)
+commit a097aadce25e0ed74ea26a45bf7185aa73520844
+Author: chunyuan <chunyuan.wu@intel.com>
+Date:   Wed Apr 28 14:29:52 2021 +0000
+
+    add lstm inference for fp32 and bf16
+
 
 bf16
 
