@@ -91,15 +91,7 @@ class RNNTGreedyDecoder(TransducerDecoder):
             if args.print_time:
                 t0 = time.time()
             # Apply optional preprocessing
-            if args.ipex and args.int8 and args.calibration:
-                with ipex.AutoMixPrecision(conf, running_mode="calibration"):
-                    logits, out_lens = self._model.encode((x, out_lens))
-            else:
-                if args.ipex and args.int8:
-                    with ipex.AutoMixPrecision(conf, running_mode="inference"):
-                       logits, out_lens = self._model.encode((x, out_lens))
-                else:
-                    logits, out_lens = self._model.encode((x, out_lens))
+            logits, out_lens = self._model.encode((x, out_lens))
 
             # output = []
             # for batch_idx in range(logits.size(0)):
@@ -111,25 +103,12 @@ class RNNTGreedyDecoder(TransducerDecoder):
             if args.print_time:
                 t1 = time.time()
 
-            # TODO: directly reorder from int8 to bf16
-            # int8 encoder + bf16 decoder
-            if args.ipex and args.int8 and not args.calibration:
-                # reorder data back to fp32
-                logits = logits.to("cpu")
-                logits = logits.to(ipex.DEVICE)
-                
-                # enable bf16 for decoder part
-                ipex.enable_auto_mixed_precision(mixed_dtype=torch.bfloat16)
-
             output = self._greedy_decode_batch(logits, out_lens)
 
             if args.print_time:
                 print("encoder time: {0}, decoder time: {1}".format(t1 - t0, time.time() - t1))
 
-        if args.ipex and args.int8 and args.calibration:
-            return output, conf
-        else:
-            return output
+        return output
 
     def _greedy_decode(self, x, out_len):
         training_state = self._model.training

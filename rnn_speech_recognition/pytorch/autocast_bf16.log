@@ -1,0 +1,9 @@
+
+bf16
+
+bash run_inference_cpu_accuracy_ipex.sh ~/dataset/RNN-T/dataset/LibriSpeech ~/Documents/ipex/training/rnn_speech_recognition/pytorch/results/rnnt.pt ipex
+
+
+==========>>>>>>Evaluation WER: 0.07347156354545789, Evaluation Accuracy: 0.9265284364545421
+==========>>>>>>Inference latency 58.090 s
+==========>>>>>>Inference performance 0.950 fps

@@ -12,6 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import ctypes
+libgcc_s = ctypes.CDLL('libgcc_s.so.1')
+
 import argparse
 import itertools
 from typing import List
@@ -136,49 +139,39 @@ def eval(
             # warm up
             if args.warm_up > 0:
                 print("\nstart warm up, warmp_up steps = ", args.warm_up)            
-                for it, data in enumerate(sorted_data_layer):
-                    t_audio_signal_e, t_a_sig_length_e, t_transcript_e, t_transcript_len_e = audio_processor(data)
-                    if args.ipex and args.int8:
-                        conf = ipex.AmpConf(torch.int8, args.configure_dir)
-                        t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e, args, conf)
-
-                    else:
+                with ipex.amp.autocast(enabled=True, configure=ipex.conf.AmpConf(torch.bfloat16)):
+                    for it, data in enumerate(sorted_data_layer):
+                        t_audio_signal_e, t_a_sig_length_e, t_transcript_e, t_transcript_len_e = audio_processor(data)
                         conf = None
                         t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e, args, conf)
-                    
-                    if it + 1 >= args.warm_up:
-                        break
+                        
+                        if it + 1 >= args.warm_up:
+                            break
 
             # measure performance
             print("\nstart measure performance, measure steps = ", args.steps)
             total_time = 0
             # with torch.autograd.profiler.profile(args.profiling, record_shapes=True) as prof:
-            for it, data in enumerate(data_layer.data_iterator):
-                t_audio_signal_e, t_a_sig_length_e, t_transcript_e, t_transcript_len_e = audio_processor(data)
-                with torch.autograd.profiler.profile(args.profiling) as prof:
-                    if args.ipex and args.int8:
-                        conf = ipex.AmpConf(torch.int8, args.configure_dir)
-                        t0 = time.perf_counter()
-                        t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e, args, conf)
-                        t1 = time.perf_counter()
-
-                    else:
+            with ipex.amp.autocast(enabled=True, configure=ipex.conf.AmpConf(torch.bfloat16)):
+                for it, data in enumerate(tqdm(data_layer.data_iterator)):
+                    t_audio_signal_e, t_a_sig_length_e, t_transcript_e, t_transcript_len_e = audio_processor(data)
+                    with torch.autograd.profiler.profile(args.profiling) as prof:
                         conf = None
                         t0 = time.perf_counter()
                         t_predictions_e = greedy_decoder.decode(t_audio_signal_e, t_a_sig_length_e, args, conf)
                         t1 = time.perf_counter()
 
-                total_time += (t1 - t0)
+                    total_time += (t1 - t0)
 
-                values_dict = dict(
-                    predictions=[t_predictions_e],
-                    transcript=[t_transcript_e],
-                    transcript_length=[t_transcript_len_e],
-                )
-                process_evaluation_batch(values_dict, _global_var_dict, labels=labels)
+                    values_dict = dict(
+                        predictions=[t_predictions_e],
+                        transcript=[t_transcript_e],
+                        transcript_length=[t_transcript_len_e],
+                    )
+                    process_evaluation_batch(values_dict, _global_var_dict, labels=labels)
 
-                if args.steps is not None and it + 1 >= args.steps:
-                    break
+                    if args.steps is not None and it + 1 >= args.steps:
+                        break
 
             if args.print_result:
                 hypotheses = _global_var_dict['predictions']
@@ -281,10 +274,6 @@ def main(args):
 
     if args.ipex:
         import intel_pytorch_extension as ipex
-        model = model.to(ipex.DEVICE)
-        ipex.core.enable_auto_dnnl()
-        if args.mix_precision:
-            ipex.enable_auto_mixed_precision(mixed_dtype=torch.bfloat16)
         if args.jit:
             print("running jit path")
             model.joint_net = torch.jit.script(model.joint_net)
@@ -297,6 +286,7 @@ def main(args):
     if args.wav is None:
         N = len(data_layer)
         step_per_epoch = math.ceil(N / (args.batch_size * (1 if not torch.distributed.is_initialized() else torch.distributed.get_world_size())))
+        # step_per_epoch = math.ceil(N / (args.batch_size * (1 if not torch.distributed.is_available() else torch.distributed.get_world_size())))
 
         if args.steps is not None:
             print('-----------------')
@@ -316,8 +306,14 @@ def main(args):
     print ("audio_preprocessor.normalize: ", audio_preprocessor.featurizer.normalize)
     audio_preprocessor.eval()
 
+    # eval_transforms = torchvision.transforms.Compose([
+    #     lambda xs: [x.to(ipex.DEVICE) if args.ipex else x.cpu() for x in xs],
+    #     lambda xs: [*audio_preprocessor(xs[0:2]), *xs[2:]],
+    #     lambda xs: [xs[0].permute(2, 0, 1), *xs[1:]],
+    # ])
+
     eval_transforms = torchvision.transforms.Compose([
-        lambda xs: [x.to(ipex.DEVICE) if args.ipex else x.cpu() for x in xs],
+        lambda xs: [x.cpu() for x in xs],
         lambda xs: [*audio_preprocessor(xs[0:2]), *xs[2:]],
         lambda xs: [xs[0].permute(2, 0, 1), *xs[1:]],
     ])
