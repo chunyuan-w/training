@@ -192,7 +192,10 @@ def eval(
 
             wer, _ = process_evaluation_epoch(_global_var_dict)
             if (not multi_gpu or (multi_gpu and torch.distributed.get_rank() == 0)):
-                print("\n==========>>>>>>Evaluation WER: {0}, Evaluation Accuracy: {1}".format(wer, 1 - wer))
+                
+                print("\n=========================>>>>>>")
+                print("Evaluation WER: {0}".format(wer))
+                print("Accuracy: {:.3f} ".format(1 - wer))
                 if args.save_prediction is not None:
                     with open(args.save_prediction, 'w') as fp:
                         fp.write('\n'.join(_global_var_dict['predictions']))
@@ -204,14 +207,21 @@ def eval(
                     with open(logits_save_to, 'wb') as f:
                         pickle.dump(logits, f, protocol=pickle.HIGHEST_PROTOCOL)
 
-            total_measure_steps = args.steps if args.steps else len(data_layer.data_iterator)
+            if args.steps:
+                if args.steps * args.batch_size > len(data_layer):
+                    total_samples = len(data_layer)
+                else:
+                    total_samples = args.steps * args.batch_size
+            else:
+                total_samples = len(data_layer)
+            
+            print("total samples tested: ", total_samples)
+            print("total time (encoder + decoder, excluded audio processing): ", total_time, "s")
+            print("dataset size: ", len(data_layer))
 
-            latency = total_time / total_measure_steps
-            # perf = total_measure_steps / total_time * args.batch_size
-            perf = len(data_layer) / total_time
-
-            print('==========>>>>>>Inference latency %.3f s' % latency)
-            print('==========>>>>>>Inference performance %.3f fps' % perf)
+            perf = total_samples / total_time
+            
+            print("Throughput: {:.3f} fps".format(perf))
 
 def main(args):
     random.seed(args.seed)
