@@ -6,6 +6,7 @@ SEED=2020
 BATCH_SIZE=56
 
 CONFIG_FILE=""
+precision=""
 
 ARGS=""
 
@@ -24,6 +25,7 @@ fi
 if [ "$4" == "int8" ]; then
     ARGS="$ARGS --int8"
     CONFIG_FILE="$CONFIG_FILE --configure-dir $5"
+    precision="int8"
 
     if [ "$6" == "calibration" ]; then
         # TODO: why 2 in RN50? 
@@ -40,12 +42,14 @@ if [ "$4" == "int8" ]; then
 elif [ "$4" == "bf16" ]; then
     ARGS="$ARGS --mix-precision"
     echo "### running bf16 inference"
+    precision="bf16"
     if [ "$5" == "jit" ]; then
         ARGS="$ARGS --jit"
         echo "### running jit path"
     fi
 elif [ "$4" == "fp32" ]; then
     echo "### running fp32 inference"
+    precision="fp32"
     if [ "$5" == "jit" ]; then
         ARGS="$ARGS --jit"
         echo "### running jit path"
@@ -67,4 +71,7 @@ echo -e "### using OMP_NUM_THREADS=$TOTAL_CORES"
 echo -e "### using $KMP_SETTING\n\n"
 sleep 3
 
-python -u inference.py $ARGS $CONFIG_FILE --val_manifest $VAL_DATASET --model_toml configs/rnnt_ckpt.toml --batch_size $BATCH_SIZE --seed $SEED
+python -u inference.py $ARGS $CONFIG_FILE --val_manifest $VAL_DATASET --model_toml configs/rnnt_ckpt.toml --batch_size $BATCH_SIZE --seed $SEED 2>&1 | tee accuracy_log.log
+
+accuracy=$(grep 'Accuracy:' ./accuracy_log* |sed -e 's/.*Accuracy//;s/[^0-9.]//g')
+echo ""RNN-T";"accuracy";${precision};${BATCH_SIZE};${accuracy}" | tee -a ${work_space}/summary.log
