@@ -73,7 +73,7 @@ CORES_PER_INSTANCE=$CORES
 
 KMP_SETTING="KMP_AFFINITY=granularity=fine,compact,1,0"
 
-BATCH_SIZE=56
+BATCH_SIZE=64
 
 export OMP_NUM_THREADS=$CORES_PER_INSTANCE
 export $KMP_SETTING
@@ -119,4 +119,4 @@ END   {
 sum = sum / i;
         printf("%.3f", sum);
 }')
-echo ""RNN-T";"throughput";${precision};${batch_size};${throughput}" | tee -a ${work_space}/summary.log
+echo ""RNN-T";"throughput";${precision};${BATCH_SIZE};${throughput}" | tee -a ${work_space}/summary.log

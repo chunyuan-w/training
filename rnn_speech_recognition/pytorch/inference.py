@@ -191,7 +191,7 @@ def eval(
             if (not multi_gpu or (multi_gpu and torch.distributed.get_rank() == 0)):
                 print("\n=========================>>>>>>")
                 print("Evaluation WER: {0}".format(wer))
-                print("Accuracy: {:.3f} ".format(1 - wer))
+                print("Accuracy: {:.15f} ".format(1 - wer))
                 if args.save_prediction is not None:
                     with open(args.save_prediction, 'w') as fp:
                         fp.write('\n'.join(_global_var_dict['predictions']))
