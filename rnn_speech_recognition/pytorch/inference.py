@@ -281,6 +281,7 @@ def main(args):
     if args.ipex:
         import intel_pytorch_extension as ipex
         model = model.to(ipex.DEVICE)
+        audio_preprocessor.featurizer.window = audio_preprocessor.featurizer.window.to(ipex.DEVICE)
         ipex.core.enable_auto_dnnl()
         if args.mix_precision:
             ipex.enable_auto_mixed_precision(mixed_dtype=torch.bfloat16)
