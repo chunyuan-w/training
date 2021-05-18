@@ -295,12 +295,12 @@ def main(args):
     # print("Number of parameters in encoder: {0}".format(model.jasper_encoder.num_weights()))
     if args.wav is None:
         N = len(data_layer)
-        step_per_epoch = math.ceil(N / (args.batch_size * (1 if not torch.distributed.is_initialized() else torch.distributed.get_world_size())))
+        step_per_epoch = math.ceil(N / (args.batch_size * (1 if not torch.distributed.is_available() else torch.distributed.get_world_size())))
         # step_per_epoch = math.ceil(N / (args.batch_size * (1 if not torch.distributed.is_available() else torch.distributed.get_world_size())))
 
         if args.steps is not None:
             print('-----------------')
-            print('Have {0} examples to eval on.'.format(args.steps * args.batch_size * (1 if not torch.distributed.is_initialized() else torch.distributed.get_world_size())))
+            print('Have {0} examples to eval on.'.format(args.steps * args.batch_size * (1 if not torch.distributed.is_available() else torch.distributed.get_world_size())))
             print('Have {0} warm up steps / (gpu * epoch).'.format(args.warm_up))
             print('Have {0} measure steps / (gpu * epoch).'.format(args.steps))
             print('-----------------')
