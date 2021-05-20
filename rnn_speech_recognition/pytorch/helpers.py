@@ -166,7 +166,7 @@ def process_evaluation_epoch(global_vars: dict, tag=None):
     references = global_vars['transcripts']
 
     wer, scores, num_words = word_error_rate(hypotheses=hypotheses, references=references)
-    multi_gpu = torch.distributed.is_available()
+    multi_gpu = torch.distributed.is_initialized()
     if multi_gpu:
         if eloss is not None:
             eloss /= torch.distributed.get_world_size()

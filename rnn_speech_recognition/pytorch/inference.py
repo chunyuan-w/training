@@ -139,7 +139,7 @@ def eval(
             # warm up
             if args.warm_up > 0:
                 print("\nstart warm up, warmp_up steps = ", args.warm_up)            
-                with ipex.amp.autocast(enabled=True, configure=ipex.conf.AmpConf(torch.bfloat16)):
+                with ipex.amp.autocast(enabled=args.mix_precision, configure=ipex.conf.AmpConf(torch.bfloat16)):
                     for it, data in enumerate(sorted_data_layer):
                         t_audio_signal_e, t_a_sig_length_e, t_transcript_e, t_transcript_len_e = audio_processor(data)
                         conf = None
@@ -152,7 +152,7 @@ def eval(
             print("\nstart measure performance, measure steps = ", args.steps)
             total_time = 0
             # with torch.autograd.profiler.profile(args.profiling, record_shapes=True) as prof:
-            with ipex.amp.autocast(enabled=True, configure=ipex.conf.AmpConf(torch.bfloat16)):
+            with ipex.amp.autocast(enabled=args.mix_precision, configure=ipex.conf.AmpConf(torch.bfloat16)):
                 for it, data in enumerate(tqdm(data_layer.data_iterator)):
                     t_audio_signal_e, t_a_sig_length_e, t_transcript_e, t_transcript_len_e = audio_processor(data)
                     with torch.autograd.profiler.profile(args.profiling) as prof:
@@ -295,12 +295,13 @@ def main(args):
     # print("Number of parameters in encoder: {0}".format(model.jasper_encoder.num_weights()))
     if args.wav is None:
         N = len(data_layer)
-        step_per_epoch = math.ceil(N / (args.batch_size * (1 if not torch.distributed.is_available() else torch.distributed.get_world_size())))
         # step_per_epoch = math.ceil(N / (args.batch_size * (1 if not torch.distributed.is_available() else torch.distributed.get_world_size())))
+        step_per_epoch = math.ceil(N / (args.batch_size * (1 if not torch.distributed.is_initialized() else torch.distributed.get_world_size())))
 
         if args.steps is not None:
             print('-----------------')
-            print('Have {0} examples to eval on.'.format(args.steps * args.batch_size * (1 if not torch.distributed.is_available() else torch.distributed.get_world_size())))
+            # print('Have {0} examples to eval on.'.format(args.steps * args.batch_size * (1 if not torch.distributed.is_available() else torch.distributed.get_world_size())))
+            print('Have {0} examples to eval on.'.format(args.steps * args.batch_size * (1 if not torch.distributed.is_initialized() else torch.distributed.get_world_size())))
             print('Have {0} warm up steps / (gpu * epoch).'.format(args.warm_up))
             print('Have {0} measure steps / (gpu * epoch).'.format(args.steps))
             print('-----------------')
@@ -328,7 +329,9 @@ def main(args):
         lambda xs: [xs[0].permute(2, 0, 1), *xs[1:]],
     ])
 
-
+    model.eval()
+    if args.ipex:
+        ipex.utils._replace_lstm_with_ipex_lstm(model)
 
     greedy_decoder = RNNTGreedyDecoder(len(ctc_vocab) - 1, model.module if multi_gpu else model)
 
