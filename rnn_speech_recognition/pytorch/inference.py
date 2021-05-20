@@ -97,16 +97,6 @@ def eval(
             'logits' : [],
         }
 
-        # use the shortest audio to do warm-up
-        if args.batch_size == 1:
-            sorted_data_layer = data_layer.data_iterator
-        else:
-            sorted_data_layer = []
-            for it, data in enumerate(data_layer.data_iterator):
-                sorted_data_layer.append(data)
-            
-            sorted_data_layer = sorted_data_layer[::-1]
-
         if args.wav:
             # TODO unimplemented in ipex
             assert False, "wav unsupported in ipex for now"
@@ -192,10 +182,9 @@ def eval(
 
             wer, _ = process_evaluation_epoch(_global_var_dict)
             if (not multi_gpu or (multi_gpu and torch.distributed.get_rank() == 0)):
-                
                 print("\n=========================>>>>>>")
                 print("Evaluation WER: {0}".format(wer))
-                print("Accuracy: {:.3f} ".format(1 - wer))
+                print("Accuracy: {:.15f} ".format(1 - wer))
                 if args.save_prediction is not None:
                     with open(args.save_prediction, 'w') as fp:
                         fp.write('\n'.join(_global_var_dict['predictions']))
@@ -214,13 +203,13 @@ def eval(
                     total_samples = args.steps * args.batch_size
             else:
                 total_samples = len(data_layer)
-            
+
             print("total samples tested: ", total_samples)
             print("total time (encoder + decoder, excluded audio processing): ", total_time, "s")
             print("dataset size: ", len(data_layer))
 
             perf = total_samples / total_time
-            
+
             print("Throughput: {:.3f} fps".format(perf))
 
 def main(args):

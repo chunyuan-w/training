@@ -5,6 +5,7 @@ export DNNL_PRIMITIVE_CACHE_CAPACITY=1024
 SEED=2020
 
 CONFIG_FILE=""
+precision=""
 
 ARGS=""
 
@@ -23,6 +24,7 @@ fi
 if [ "$4" == "int8" ]; then
     ARGS="$ARGS --int8"
     CONFIG_FILE="$CONFIG_FILE --configure-dir $5"
+    precision="int8"
 
     if [ "$6" == "calibration" ]; then
         # TODO: why 2 in RN50? 
@@ -42,6 +44,7 @@ if [ "$4" == "int8" ]; then
 elif [ "$4" == "bf16" ]; then
     ARGS="$ARGS --mix-precision"
     echo "### running bf16 inference"
+    precision="bf16"
     if [ "$5" == "jit" ]; then
         ARGS="$ARGS --jit"
         echo "### running jit path"
@@ -51,6 +54,7 @@ elif [ "$4" == "bf16" ]; then
     fi
 elif [ "$4" == "fp32" ]; then
     echo "### running fp32 inference"
+    precision="fp32"
     if [ "$5" == "jit" ]; then
         ARGS="$ARGS --jit"
         echo "### running jit path"
@@ -69,7 +73,7 @@ CORES_PER_INSTANCE=$CORES
 
 KMP_SETTING="KMP_AFFINITY=granularity=fine,compact,1,0"
 
-BATCH_SIZE=56
+BATCH_SIZE=64
 
 export OMP_NUM_THREADS=$CORES_PER_INSTANCE
 export $KMP_SETTING
@@ -85,7 +89,7 @@ for i in $(seq 1 $LAST_INSTANCE); do
     numa_node_i=`expr $i / $INSTANCES_PER_SOCKET`
     start_core_i=`expr $i \* $CORES_PER_INSTANCE`
     end_core_i=`expr $start_core_i + $CORES_PER_INSTANCE - 1`
-    LOG_i=inference_thp_bs${BATCH_SIZE}_ins${i}.txt
+    LOG_i=throughput_log_ins${i}.txt
 
     echo "### running on instance $i, numa node $numa_node_i, core list {$start_core_i, $end_core_i}..."
     numactl --physcpubind=$start_core_i-$end_core_i --membind=$numa_node_i python -u inference.py \
@@ -95,15 +99,24 @@ done
 numa_node_0=0
 start_core_0=0
 end_core_0=`expr $CORES_PER_INSTANCE - 1`
-LOG_0=inference_thp_bs${BATCH_SIZE}_ins0.txt
+LOG_0=throughput_log_ins0.txt
 
 echo "### running on instance 0, numa node $numa_node_0, core list {$start_core_0, $end_core_0}...\n\n"
 numactl --physcpubind=$start_core_0-$end_core_0 --membind=$numa_node_0 python -u inference.py \
      $ARGS $CONFIG_FILE --val_manifest $VAL_DATASET --model_toml configs/rnnt_ckpt.toml --batch_size $BATCH_SIZE --seed $SEED --warm_up 3 2>&1 | tee $LOG_0
 
 sleep 10
-echo -e "\n\n Throughput:"
-for i in $(seq 0 $LAST_INSTANCE); do
-    log=inference_thp_bs${BATCH_SIZE}_ins${i}.txt
-    tail -n 3 $log
-done
+throughput=$(grep 'Throughput:' ./throughput_log_ins* |sed -e 's/.*Throughput//;s/[^0-9.]//g' |awk '
+BEGIN {
+        sum = 0;
+i = 0;
+      }
+      {
+        sum = sum + $1;
+i++;
+      }
+END   {
+sum = sum / i;
+        printf("%.3f", sum);
+}')
+echo ""RNN-T";"throughput";${precision};${BATCH_SIZE};${throughput}" | tee -a ${work_space}/summary.log
